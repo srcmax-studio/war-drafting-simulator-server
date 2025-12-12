@@ -1,0 +1,3 @@
+[submodule "config/characters"]
+	path = config/characters
+	url = git@github.com:srcmax-studio/war-drafting-simulator-characters.git
