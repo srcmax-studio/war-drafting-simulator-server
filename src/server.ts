@@ -27,8 +27,14 @@ export class Server {
     players: Map<WebSocket, Player> = new Map<WebSocket, Player>();
     private readonly wss: WebSocketServer;
     private actionHandlers: Record<string, ActionHandler>;
+    private static instance: Server;
+
+    static getInstance(): Server {
+        return this.instance;
+    }
 
     constructor(config: any, characters: Set<Character>) {
+        Server.instance = this;
         this.config = config;
         this.characters = characters;
 
@@ -104,7 +110,7 @@ export class Server {
 
             ws.on('message', (rdata) => {
                 if (this.config.debug) {
-                    console.log(rdata.toString());
+                    console.log(`Received ${rdata.toString()} from ${client.remoteName}`);
                 }
 
                 let message;

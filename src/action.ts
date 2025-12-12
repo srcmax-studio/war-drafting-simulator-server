@@ -28,10 +28,12 @@ export class AuthenticateHandler implements ActionHandler {
         }
 
         if (password !== this.server.config.password) {
+            console.log(`Client ${client.remoteName} failed to authenticate.`)
             throw new EventError("所提供的密码与记录不符")
         }
 
         client.authenticated = true;
+        console.log(`Client ${client.remoteName} authenticated.`)
         client.send(new AuthenticatedEvent());
     }
 }
@@ -56,8 +58,7 @@ export class JoinHandler implements ActionHandler {
         }
 
         this.server.players.set(client.ws, new Player(client.ws, name));
-        console.log(`Player ${name} joined. (${this.server.getServerState().onlinePlayers}/2)`);
-        console.log(this.server.players.values())
+        console.log(`Client ${client.remoteName} joined as ${name}. (${this.server.getServerState().onlinePlayers}/2)`);
 
         let players: string[] = [];
         for (const player of this.server.players.values()) {

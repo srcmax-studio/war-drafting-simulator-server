@@ -1,12 +1,16 @@
 import { WebSocket } from "ws";
 import { ServerEvent } from "./event";
+import { Server } from "./server";
 
 export class Client {
     ws: WebSocket;
     authenticated = false;
+    remoteName: string;
 
     constructor(ws: WebSocket) {
         this.ws = ws;
+        // @ts-ignore
+        this.remoteName = ws._socket.remoteAddress;
     }
 
     public sendRaw(data: any) {
@@ -15,6 +19,9 @@ export class Client {
 
     public send(event: ServerEvent) {
         this.sendRaw(event);
+        if (Server.getInstance().config.debug) {
+            console.log(`Sent ${event.serialize()} to ${this.remoteName}`)
+        }
     }
 
     public isConnectionActive(): boolean {

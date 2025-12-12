@@ -24,16 +24,17 @@ npm run start
 
 ## Configuration
 
-| Parameter | Description                                             | Default                              |
-|-----------|---------------------------------------------------------|--------------------------------------|
-| `host` | Server bind address                                     | `0.0.0.0`                            |
-| `port` | Port server listens on                                  | `3001`                               |
-| `title` | Server title                                            | `WDS Game`                           |
-| `owner` | Server owner                                            | `SrcMax Studio`                      |
-| `publish-server` | List your server on the public server list              | `true`                               |
+| Parameter          | Description                                             | Default                              |
+|--------------------|---------------------------------------------------------|--------------------------------------|
+| `host`             | Server bind address                                     | `0.0.0.0`                            |
+| `port`             | Port server listens on                                  | `3001`                               |
+| `title`            | Server title                                            | `WDS Game`                           |
+| `owner`            | Server owner                                            | `SrcMax Studio`                      |
+| `publish-server`   | List your server on the public server list              | `true`                               |
 | `publish-endpoint` | Server list endpoint to publish                         | `https://wds.srcmax.com/api/publish` |
-| `publish-ip` | The public IP address of your server to be connected to | `public.wds.srcmax.com`              |
-| `password` | Password for joining (empty for no password)            | `""`                                 |
+| `publish-ip`       | The public IP address of your server to be connected to | `public.wds.srcmax.com`              |
+| `password`         | Password for joining (empty for no password)            | `""`                                 |
+| `debug`            | Enable debug logging                                    | `false`                              |
 
 ## License
 This project is licensed under MIT.
