@@ -47,10 +47,20 @@ export class AuthenticatedEvent extends ServerEvent {
 
 export class JoinedEvent extends ServerEvent {
     event = "joined";
-    constructor(players: string[]) { super(); }
+    players: string[];
+    serverState: ServerState;
+    constructor(players: string[], serverState: ServerState) {
+        super();
+        this.players = players;
+        this.serverState = serverState;
+    }
 }
 
 export class PlayerListEvent extends ServerEvent {
     event = 'playerlist';
-    constructor(players: string[]) { super(); }
+    players: string[];
+    constructor(players: string[]) {
+        super();
+        this.players = players;
+    }
 }

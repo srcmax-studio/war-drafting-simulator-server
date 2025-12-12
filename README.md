@@ -24,17 +24,20 @@ npm run start
 
 ## Configuration
 
-| Parameter          | Description                                             | Default                              |
-|--------------------|---------------------------------------------------------|--------------------------------------|
-| `host`             | Server bind address                                     | `0.0.0.0`                            |
-| `port`             | Port server listens on                                  | `3001`                               |
-| `title`            | Server title                                            | `WDS Game`                           |
-| `owner`            | Server owner                                            | `SrcMax Studio`                      |
-| `publish-server`   | List your server on the public server list              | `true`                               |
-| `publish-endpoint` | Server list endpoint to publish                         | `https://wds.srcmax.com/api/publish` |
-| `publish-ip`       | The public IP address of your server to be connected to | `public.wds.srcmax.com`              |
-| `password`         | Password for joining (empty for no password)            | `""`                                 |
-| `debug`            | Enable debug logging                                    | `false`                              |
+| Parameter          | Description                                                                                                  | Default                              |
+|--------------------|--------------------------------------------------------------------------------------------------------------|--------------------------------------|
+| `host`             | Server bind address                                                                                          | `0.0.0.0`                            |
+| `port`             | Port server listens on                                                                                       | `3001`                               |
+| `title`            | Server title                                                                                                 | `WDS Game`                           |
+| `owner`            | Server owner                                                                                                 | `SrcMax Studio`                      |
+| `tls`              | Enable TLS for WebSocket server. Required when using HTTPS in web client or modern browsers will not connect | `true`                               |
+| `private-key`      | Path to your private key                                                                                     | `/path/to/privkey.pem`               |
+| `certificate`      | Path to your certificate                                                                                     | `/path/to/fullchain.pem`             |
+| `publish-server`   | List your server on the public server list                                                                   | `true`                               |
+| `publish-endpoint` | Server list endpoint to publish                                                                              | `https://wds.srcmax.com/api/publish` |
+| `publish-ip`       | The public IP address of your server to be connected to                                                      | `public.wds.srcmax.com`              |
+| `password`         | Password for joining (empty for no password)                                                                 | `""`                                 |
+| `debug`            | Enable debug logging                                                                                         | `false`                              |
 
 ## License
 This project is licensed under MIT.

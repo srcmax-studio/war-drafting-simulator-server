@@ -3,8 +3,11 @@
   "port": 3001,
   "title": "WDS Game",
   "owner": "SrcMax Studio",
+  "tls": true,
+  "private-key": "/path/to/privkey.pem",
+  "certificate": "/path/to/fullchain.pem",
   "publish-server": true,
   "publish-endpoint": "https://wds.srcmax.com/api/publish",
-  "publish-ip": "public.wds.srcmax.com",
+  "publish-address": "public.wds.srcmax.com",
   "password": ""
 }

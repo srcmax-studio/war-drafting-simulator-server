@@ -4,6 +4,8 @@ import { Client, ClientMessage, Player } from "./client";
 import axios, { AxiosError } from "axios";
 import { ActionHandler, AuthenticateHandler, JoinHandler, PlayerActionHandler, StatusHandler } from "./action";
 import { ServerEvent, ErrorEvent, EventError, StatusEvent, PlayerListEvent } from "./event";
+import fs from "fs";
+import * as https from "node:https";
 
 export interface ServerState {
     title: string,
@@ -12,7 +14,8 @@ export interface ServerState {
     onlinePlayers: number,
     getOnlinePlayers: () => number,
     phase: number,
-    requirePassword: boolean
+    requirePassword: boolean,
+    tls: boolean
 }
 
 const PHASE_LOBBY = 0
@@ -45,7 +48,8 @@ export class Server {
             onlinePlayers: 0,
             getOnlinePlayers: () => { return this.players.size },
             phase: PHASE_LOBBY,
-            requirePassword: !!config.password
+            requirePassword: !!config.password,
+            tls: config.tls,
         };
 
         this.actionHandlers = {
@@ -55,13 +59,39 @@ export class Server {
         };
 
         console.log('Starting WebSocket server...');
-        this.wss = new WebSocketServer({ host: config.host, port: config.port });
+
+        let server;
+        let options: any = { host: config.host };
+        if (this.config.tls) {
+            server = https.createServer({
+                key: fs.readFileSync(this.config["private-key"]),
+                cert: fs.readFileSync(this.config["certificate"])
+            });
+            options = { ...options, server };
+        } else {
+            options = { ...options, port: config.port };
+            console.log("TLS is NOT enabled. Clients will not be able to connect due to security features on modern browsers when using HTTPS.")
+        }
+
+        this.wss = new WebSocketServer(options);
         this.setupWSServer();
 
+        if (this.config.tls) {
+            server?.listen(config.port);
+        }
+
         console.log('Listening on ' + config.host + ":" + config.port + ".");
-        console.log('Server ready!')
+        console.log('Server ready!');
 
         if (this.config["publish-server"]) {
+            if (! this.config.tls) {
+                if (! this.config["force-publish"]) {
+                    console.log("Server will not be published to server list because TLS is not enabled. Use 'force-publish' option to bypass this check.");
+                    return;
+                } else {
+                    console.log("Publish TLS check bypassed. Note that clients will not be able to connect when using HTTPS.")
+                }
+            }
             this.publish();
         }
     }
@@ -160,7 +190,7 @@ export class Server {
         try {
             const res = await axios.post(
                 this.config["publish-endpoint"],
-                { ip: this.config["publish-ip"], port: this.config.port },
+                { ip: this.config["publish-address"], port: this.config.port, tls: this.config.tls },
             );
             if (res.data.ok) {
                 console.log("Server published to public server list.");
@@ -171,7 +201,7 @@ export class Server {
             console.error("Failed to publish to public server list: ",
                 e instanceof AxiosError
                     ? e.response?.data : "unknown error");
-            console.error("Please confirm publish-ip is set to your public IP address.")
+            console.error("Please confirm publish-address is set to a domain name pointing to your public IP address and the certificate is valid.")
         }
     }
 }
