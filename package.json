@@ -4,11 +4,16 @@
   "description": "",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc"
+    "start": "ts-node src/main.ts"
   },
-  "dependencies": {},
+  "dependencies": {
+    "axios": "^1.13.2",
+    "ws": "^8.18.3"
+  },
   "devDependencies": {
-    "typescript": "^5.5.3"
+    "@types/ws": "^8.18.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   },
   "private": true
 }
