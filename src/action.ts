@@ -60,11 +60,7 @@ export class JoinHandler implements ActionHandler {
         this.server.players.set(client.ws, new Player(client.ws, name));
         console.log(`Client ${client.remoteName} joined as ${name}. (${this.server.getServerState().onlinePlayers}/2)`);
 
-        let players: string[] = [];
-        for (const player of this.server.players.values()) {
-            players.push(player.name);
-        }
-        client.send(new JoinedEvent(players));
-        this.server.broadcastStatus();
+        client.send(new JoinedEvent(this.server.getPlayerNameList()));
+        this.server.broadcastPlayerList();
     }
 }

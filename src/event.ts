@@ -49,3 +49,8 @@ export class JoinedEvent extends ServerEvent {
     event = "joined";
     constructor(players: string[]) { super(); }
 }
+
+export class PlayerListEvent extends ServerEvent {
+    event = 'playerlist';
+    constructor(players: string[]) { super(); }
+}

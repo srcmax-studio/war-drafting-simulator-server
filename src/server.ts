@@ -3,7 +3,7 @@ import { Character } from "./character";
 import { Client, ClientMessage, Player } from "./client";
 import axios, { AxiosError } from "axios";
 import { ActionHandler, AuthenticateHandler, JoinHandler, PlayerActionHandler, StatusHandler } from "./action";
-import { ServerEvent, ErrorEvent, EventError, StatusEvent } from "./event";
+import { ServerEvent, ErrorEvent, EventError, StatusEvent, PlayerListEvent } from "./event";
 
 export interface ServerState {
     title: string,
@@ -104,7 +104,7 @@ export class Server {
                 if (this.players.has(ws)) {
                     console.log(`Player ${this.players.get(ws)?.name} left. (${(this.getServerState().onlinePlayers-1)}/2)`);
                     this.players.delete(ws);
-                    this.broadcastStatus();
+                    this.broadcastPlayerList();
                 }
             });
 
@@ -128,8 +128,17 @@ export class Server {
         });
     }
 
-    public broadcastStatus() {
-        this.broadcast(new StatusEvent(this.getServerState()));
+    public getPlayerNameList(): string[] {
+        let names: string[] = [];
+        for (const player of this.players.values()) {
+            names.push(player.name);
+        }
+
+        return names;
+    }
+
+    public broadcastPlayerList() {
+        this.broadcast(new PlayerListEvent(this.getPlayerNameList()));
     }
 
     public broadcast(event: ServerEvent) {
