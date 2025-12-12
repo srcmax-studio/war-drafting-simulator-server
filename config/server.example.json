@@ -1,0 +1,10 @@
+{
+  "host": "0.0.0.0",
+  "port": 3001,
+  "title": "WDS Game",
+  "owner": "SrcMax Studio",
+  "publish-server": true,
+  "publish-endpoint": "https://wds.srcmax.com/api/publish",
+  "publish-ip": "public.wds.srcmax.com",
+  "password": ""
+}
