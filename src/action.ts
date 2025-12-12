@@ -1,6 +1,6 @@
 import { Client, ClientMessage, Player } from "./client";
 import { Server } from "./server";
-import { AuthenticatedEvent, EventError, JoinedEvent } from "./event";
+import { AuthenticatedEvent, EventError, JoinedEvent, StatusEvent } from "./event";
 
 export abstract class ActionHandler {
     abstract execute(client: Client, data?: any): void;
@@ -14,7 +14,7 @@ export class StatusHandler implements ActionHandler {
     constructor(private server: Server) {}
 
     execute(client: Client) {
-        client.sendRaw(this.server.getServerState());
+        client.send(new StatusEvent(this.server.getServerState()));
     }
 }
 

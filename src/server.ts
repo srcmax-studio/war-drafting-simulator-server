@@ -3,7 +3,7 @@ import { Character } from "./character";
 import { Client, ClientMessage, Player } from "./client";
 import axios, { AxiosError } from "axios";
 import { ActionHandler, AuthenticateHandler, JoinHandler, PlayerActionHandler, StatusHandler } from "./action";
-import { ServerEvent, ErrorEvent, EventError } from "./event";
+import { ServerEvent, ErrorEvent, EventError, StatusEvent } from "./event";
 
 export interface ServerState {
     title: string,
@@ -124,24 +124,20 @@ export class Server {
                 this.handle(client, message);
             });
 
-            client.sendRaw(this.serverState);
+            client.send(new StatusEvent(this.getServerState()));
         });
     }
 
     public broadcastStatus() {
-        this.broadcastRaw(this.getServerState());
-    }
-
-    public broadcastRaw(data: any) {
-        for (const player of this.players.values()) {
-            if (player.isConnectionActive()) {
-                player.sendRaw(data);
-            }
-        }
+        this.broadcast(new StatusEvent(this.getServerState()));
     }
 
     public broadcast(event: ServerEvent) {
-        this.broadcastRaw(event);
+        for (const player of this.players.values()) {
+            if (player.isConnectionActive()) {
+                player.send(event);
+            }
+        }
     }
 
     public getServerState() {

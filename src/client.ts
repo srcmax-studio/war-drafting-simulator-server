@@ -13,12 +13,8 @@ export class Client {
         this.remoteName = ws._socket.remoteAddress;
     }
 
-    public sendRaw(data: any) {
-        this.ws.send(JSON.stringify(data));
-    }
-
     public send(event: ServerEvent) {
-        this.sendRaw(event);
+        this.ws.send(event.serialize());
         if (Server.getInstance().config.debug) {
             console.log(`Sent ${event.serialize()} to ${this.remoteName}`)
         }
