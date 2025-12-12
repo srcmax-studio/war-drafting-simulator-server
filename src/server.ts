@@ -2,7 +2,7 @@ import { WebSocket, WebSocketServer } from "ws";
 import { Character } from "./character";
 import { Client, ClientMessage, Player } from "./client";
 import axios, { AxiosError } from "axios";
-import { ActionHandler, JoinHandler, PlayerActionHandler, StatusHandler } from "./action";
+import { ActionHandler, AuthenticateHandler, JoinHandler, PlayerActionHandler, StatusHandler } from "./action";
 import { ServerEvent, ErrorEvent, EventError } from "./event";
 
 export interface ServerState {
@@ -20,8 +20,8 @@ const PHASE_DRAFT = 10
 const PHASE_SIMULATING = 20
 
 export class Server {
-    private readonly config;
-    private readonly characters: Set<Character>;
+    readonly config;
+    readonly characters: Set<Character>;
     private serverState: ServerState;
     clients: Map<WebSocket, Client> = new Map<WebSocket, Client>();
     players: Map<WebSocket, Player> = new Map<WebSocket, Player>();
@@ -44,6 +44,7 @@ export class Server {
 
         this.actionHandlers = {
             status: new StatusHandler(this),
+            authenticate: new AuthenticateHandler(this),
             join: new JoinHandler(this)
         };
 

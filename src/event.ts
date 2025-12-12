@@ -1,6 +1,6 @@
 export class EventError extends Error {
-    constructor(message: string) {
-        super();
+    constructor(message?: string) {
+        super(message);
     }
 }
 
@@ -14,7 +14,13 @@ export abstract class ServerEvent {
 
 export class ErrorEvent extends ServerEvent {
     event = 'error';
-    constructor(message?: string) { super(); }
+    message?: string;
+
+    constructor(message?: string) { super(); this.message = message; }
+}
+
+export class AuthenticatedEvent extends ServerEvent {
+    event = 'authenticated';
 }
 
 export class JoinedEvent extends ServerEvent {

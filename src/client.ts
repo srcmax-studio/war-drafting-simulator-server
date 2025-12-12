@@ -3,6 +3,7 @@ import { ServerEvent } from "./event";
 
 export class Client {
     ws: WebSocket;
+    authenticated = false;
 
     constructor(ws: WebSocket) {
         this.ws = ws;
