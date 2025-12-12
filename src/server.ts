@@ -9,7 +9,8 @@ export interface ServerState {
     title: string,
     owner: string,
     loadedCharacters: number,
-    onlinePlayers: () => number,
+    onlinePlayers: number,
+    getOnlinePlayers: () => number,
     phase: number,
     requirePassword: boolean
 }
@@ -21,7 +22,7 @@ const PHASE_SIMULATING = 20
 export class Server {
     private readonly config;
     private readonly characters: Set<Character>;
-    serverState: ServerState;
+    private serverState: ServerState;
     clients: Map<WebSocket, Client> = new Map<WebSocket, Client>();
     players: Map<WebSocket, Player> = new Map<WebSocket, Player>();
     private readonly wss: WebSocketServer;
@@ -35,7 +36,8 @@ export class Server {
             title: config.title,
             owner: config.owner,
             loadedCharacters: characters.size,
-            onlinePlayers: () => { return this.players.size },
+            onlinePlayers: 0,
+            getOnlinePlayers: () => { return this.players.size },
             phase: PHASE_LOBBY,
             requirePassword: !!config.password
         };
@@ -93,7 +95,7 @@ export class Server {
             ws.on('close', () => {
                 this.clients.delete(ws);
                 if (this.players.has(ws)) {
-                    console.log(`Player ${this.players.get(ws)?.name} left. (${(this.serverState.onlinePlayers()-1)}/2)`);
+                    console.log(`Player ${this.players.get(ws)?.name} left. (${(this.getServerState().onlinePlayers-1)}/2)`);
                     this.players.delete(ws);
                     this.broadcastStatus();
                 }
@@ -120,7 +122,7 @@ export class Server {
     }
 
     public broadcastStatus() {
-        this.broadcastRaw(this.serverState);
+        this.broadcastRaw(this.getServerState());
     }
 
     public broadcastRaw(data: any) {
@@ -133,6 +135,11 @@ export class Server {
 
     public broadcast(event: ServerEvent) {
         this.broadcastRaw(event);
+    }
+
+    public getServerState() {
+        this.serverState.onlinePlayers = this.serverState.getOnlinePlayers();
+        return this.serverState;
     }
 
     private async publish() {

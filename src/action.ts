@@ -14,7 +14,7 @@ export class StatusHandler implements ActionHandler {
     constructor(private server: Server) {}
 
     execute(client: Client) {
-        client.sendRaw(this.server.serverState);
+        client.sendRaw(this.server.getServerState());
     }
 }
 
@@ -22,7 +22,7 @@ export class JoinHandler implements ActionHandler {
     constructor(private server: Server) {}
 
     execute(client: Client, data: ClientMessage) {
-        if (this.server.serverState.onlinePlayers() >= 2) {
+        if (this.server.getServerState().onlinePlayers >= 2) {
             throw new EventError( "服务器已满");
         }
 
@@ -32,7 +32,7 @@ export class JoinHandler implements ActionHandler {
         }
 
         this.server.players.set(client.ws, new Player(client.ws, name));
-        console.log(`Player ${name} joined. (${this.server.serverState.onlinePlayers()}/2)`);
+        console.log(`Player ${name} joined. (${this.server.getServerState().onlinePlayers}/2)`);
         console.log(this.server.players.values())
 
         let players: string[] = [];
