@@ -47,7 +47,7 @@ export class MessageEvent extends ServerEvent {
 }
 
 export class CharactersSyncEvent extends ServerEvent {
-    event = 'message';
+    event = 'charactersSync';
     characters: Character[];
 
     constructor(characters: Character[]) { super(); this.characters = characters; }
