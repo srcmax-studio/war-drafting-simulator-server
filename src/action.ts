@@ -37,7 +37,7 @@ export class ChatMessageHandler extends PlayerActionHandler {
     constructor(private server: Server) { super(); }
 
     execute(player: Player, data?: any) {
-        this.server.broadcastMessage(`player.name: ${data.message}`);
+        this.server.broadcastMessage(`${player.name}: ${data.message}`);
     }
 }
 

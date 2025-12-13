@@ -163,9 +163,12 @@ export class Server {
             ws.on('close', () => {
                 this.clients.delete(ws);
                 if (this.players.has(ws)) {
-                    Logger.info(`Player ${this.players.get(ws)?.name} left. (${(this.getServerState().onlinePlayers-1)}/2)`);
+                    const player = this.players.get(ws);
+
+                    Logger.info(`Player ${player?.name} left. (${(this.getServerState().onlinePlayers-1)}/2)`);
                     this.players.delete(ws);
                     this.broadcastPlayerList();
+                    this.broadcastMessage(`${player?.name} 退出了服务器。`);
                 }
             });
 
