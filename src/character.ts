@@ -1,3 +1,5 @@
+import { Logger } from "./utils";
+
 export function processCharacters(collection: unknown[]): Set<Character> {
     const result = new Set<Character>();
 
@@ -10,11 +12,11 @@ export function processCharacters(collection: unknown[]): Set<Character> {
         }
 
         if (uidSet.has(item.UID)) {
-            console.log(`Duplicate character UID ${item.UID} found, skipping...`)
+            Logger.warning(`Duplicate character UID ${item.UID} found, skipping...`)
             continue;
         }
         if (nameSet.has(item.名字)) {
-            console.log(`Duplicate character name ${item.名字} found, skipping...`)
+            Logger.warning(`Duplicate character name ${item.名字} found, skipping...`)
             continue;
         }
 

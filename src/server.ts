@@ -13,6 +13,7 @@ import {
 import { ServerEvent, ErrorEvent, EventError, StatusEvent, PlayerListEvent } from "./event";
 import fs from "fs";
 import * as https from "node:https";
+import { Logger } from "./utils";
 
 export interface ServerState {
     title: string,
@@ -69,7 +70,7 @@ export class Server {
             join: new JoinHandler(this)
         };
 
-        console.log('Starting WebSocket server...');
+        Logger.info('Starting WebSocket server...');
 
         let server;
         let options: any = { host: config.host };
@@ -81,7 +82,7 @@ export class Server {
             options = { ...options, server };
         } else {
             options = { ...options, port: config.port };
-            console.log("TLS is NOT enabled. Clients will not be able to connect due to security features on modern browsers when using HTTPS.")
+            Logger.notice("TLS is NOT enabled. Clients will not be able to connect due to security features on modern browsers when using HTTPS.")
         }
 
         this.wss = new WebSocketServer(options);
@@ -93,16 +94,16 @@ export class Server {
 
         this.setupHeartBeat();
 
-        console.log('Listening on ' + config.host + ":" + config.port + ".");
-        console.log('Server ready!');
+        Logger.info('Listening on ' + config.host + ":" + config.port + ".");
+        Logger.info('Server ready!');
 
         if (this.config["publish-server"]) {
             if (! this.config.tls) {
                 if (! this.config["force-publish"]) {
-                    console.log("Server will not be published to server list because TLS is not enabled. Use 'force-publish' option to bypass this check.");
+                    Logger.notice("Server will not be published to server list because TLS is not enabled. Use 'force-publish' option to bypass this check.");
                     return;
                 } else {
-                    console.log("Publish TLS check bypassed. Note that clients will not be able to connect when using HTTPS.")
+                    Logger.notice("Publish TLS check bypassed. Note that clients will not be able to connect when using HTTPS.")
                 }
             }
             this.publish();
@@ -116,7 +117,7 @@ export class Server {
             this.players.forEach(player => {
                 if (now - player.lastPong > HEARTBEAT_TIMEOUT) {
                     player.ws.terminate();
-                    console.log(`Player ${player.name} terminated due to timeout.`);
+                    Logger.info(`Player ${player.name} terminated due to timeout.`);
                 } else {
                     player.ping();
                 }
@@ -160,7 +161,7 @@ export class Server {
             ws.on('close', () => {
                 this.clients.delete(ws);
                 if (this.players.has(ws)) {
-                    console.log(`Player ${this.players.get(ws)?.name} left. (${(this.getServerState().onlinePlayers-1)}/2)`);
+                    Logger.info(`Player ${this.players.get(ws)?.name} left. (${(this.getServerState().onlinePlayers-1)}/2)`);
                     this.players.delete(ws);
                     this.broadcastPlayerList();
                 }
@@ -168,7 +169,7 @@ export class Server {
 
             ws.on('message', (rdata) => {
                 if (this.config.debug) {
-                    console.log(`Received ${rdata.toString()} from ${client.remoteName}`);
+                    Logger.debug(`Received ${rdata.toString()} from ${client.remoteName}`);
                 }
 
                 let message;
@@ -213,7 +214,7 @@ export class Server {
     }
 
     private async publish() {
-        console.log("Publishing server to " + this.config["publish-endpoint"]);
+        Logger.info("Publishing server to " + this.config["publish-endpoint"]);
 
         try {
             const res = await axios.post(
@@ -221,7 +222,7 @@ export class Server {
                 { ip: this.config["publish-address"], port: this.config.port, tls: this.config.tls },
             );
             if (res.data.ok) {
-                console.log("Server published to public server list.");
+                Logger.info("Server published to public server list.");
             } else {
                 throw new Error("unknown error");
             }

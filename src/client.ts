@@ -1,6 +1,7 @@
 import { WebSocket } from "ws";
 import { PingEvent, ServerEvent } from "./event";
 import { Server } from "./server";
+import { Logger } from "./utils";
 
 export class Client {
     ws: WebSocket;
@@ -16,7 +17,7 @@ export class Client {
     public send(event: ServerEvent) {
         this.ws.send(event.serialize());
         if (Server.getInstance().config.debug) {
-            console.log(`Sent ${event.serialize()} to ${this.remoteName}`)
+            Logger.debug(`Sent ${event.serialize()} to ${this.remoteName}`)
         }
     }
 

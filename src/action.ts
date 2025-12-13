@@ -1,6 +1,7 @@
 import { Client, ClientMessage, Player } from "./client";
 import { Server } from "./server";
-import { AuthenticatedEvent, EventError, JoinedEvent, StatusEvent } from "./event";
+import { AuthenticatedEvent, CharactersSyncEvent, EventError, JoinedEvent, StatusEvent } from "./event";
+import { Logger } from "./utils";
 
 export abstract class ActionHandler {
     abstract execute(client: Client, data?: any): void;
@@ -34,12 +35,12 @@ export class AuthenticateHandler implements ActionHandler {
         }
 
         if (password !== this.server.config.password) {
-            console.log(`Client ${client.remoteName} failed to authenticate.`)
+            Logger.warning(`Client ${client.remoteName} failed to authenticate.`)
             throw new EventError("所提供的密码与记录不符")
         }
 
         client.authenticated = true;
-        console.log(`Client ${client.remoteName} authenticated.`)
+        Logger.info(`Client ${client.remoteName} authenticated.`)
         client.send(new AuthenticatedEvent());
     }
 }
@@ -64,7 +65,7 @@ export class JoinHandler implements ActionHandler {
         }
 
         this.server.players.set(client.ws, new Player(client.ws, name));
-        console.log(`Client ${client.remoteName} joined as ${name}. (${this.server.getServerState().onlinePlayers}/2)`);
+        Logger.info(`Client ${client.remoteName} joined as ${name}. (${this.server.getServerState().onlinePlayers}/2)`);
 
         client.send(new JoinedEvent(this.server.getPlayerNameList(), this.server.getServerState()));
         this.server.broadcastPlayerList();
