@@ -4,13 +4,13 @@ import { Client, ClientMessage, Player } from "./client";
 import axios, { AxiosError } from "axios";
 import {
     ActionHandler,
-    AuthenticateHandler,
+    AuthenticateHandler, ChatMessageHandler,
     JoinHandler,
     PlayerActionHandler,
     PongHandler, RequestCharactersHandler,
     StatusHandler
 } from "./action";
-import { ServerEvent, ErrorEvent, EventError, StatusEvent, PlayerListEvent } from "./event";
+import { ServerEvent, ErrorEvent, EventError, StatusEvent, PlayerListEvent, MessageEvent } from "./event";
 import fs from "fs";
 import * as https from "node:https";
 import { Logger } from "./utils";
@@ -68,7 +68,8 @@ export class Server {
             pong: new PongHandler(),
             requestCharacters: new RequestCharactersHandler(this),
             authenticate: new AuthenticateHandler(this),
-            join: new JoinHandler(this)
+            join: new JoinHandler(this),
+            chatMessage: new ChatMessageHandler(this),
         };
 
         Logger.info('Starting WebSocket server...');
@@ -207,6 +208,10 @@ export class Server {
                 player.send(event);
             }
         }
+    }
+
+    public broadcastMessage(message: string) {
+        this.broadcast(new MessageEvent(message));
     }
 
     public getServerState() {

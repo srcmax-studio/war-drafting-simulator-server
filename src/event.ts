@@ -39,6 +39,13 @@ export class PingEvent extends ServerEvent {
     event = 'ping';
 }
 
+export class MessageEvent extends ServerEvent {
+    event = 'message';
+    message: string;
+
+    constructor(message: string) { super(); this.message = message; }
+}
+
 export class CharactersSyncEvent extends ServerEvent {
     event = 'message';
     characters: Character[];

@@ -33,6 +33,14 @@ export class RequestCharactersHandler implements PlayerActionHandler {
     }
 }
 
+export class ChatMessageHandler implements PlayerActionHandler {
+    constructor(private server: Server) {}
+
+    execute(player: Player, data?: any) {
+        this.server.broadcastMessage(`player.name: ${data.message}`);
+    }
+}
+
 export class AuthenticateHandler implements ActionHandler {
     constructor(private server: Server) {}
 
@@ -79,5 +87,6 @@ export class JoinHandler implements ActionHandler {
 
         client.send(new JoinedEvent(this.server.getPlayerNameList(), this.server.getServerState()));
         this.server.broadcastPlayerList();
+        this.server.broadcastMessage(`${name} 加入了服务器。`);
     }
 }
