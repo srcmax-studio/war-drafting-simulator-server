@@ -11,38 +11,38 @@ export abstract class PlayerActionHandler {
     abstract execute(player: Player, data?: any): void;
 }
 
-export class StatusHandler implements ActionHandler {
-    constructor(private server: Server) {}
+export class StatusHandler extends ActionHandler {
+    constructor(private server: Server) { super(); }
 
     execute(client: Client) {
         client.send(new StatusEvent(this.server.getServerState()));
     }
 }
 
-export class PongHandler implements PlayerActionHandler {
+export class PongHandler extends PlayerActionHandler {
     execute(player: Player) {
         player.pong();
     }
 }
 
-export class RequestCharactersHandler implements PlayerActionHandler {
-    constructor(private server: Server) {}
+export class RequestCharactersHandler extends PlayerActionHandler {
+    constructor(private server: Server) { super(); }
 
     execute(player: Player) {
         player.send(new CharactersSyncEvent(Array.from(this.server.characters)));
     }
 }
 
-export class ChatMessageHandler implements PlayerActionHandler {
-    constructor(private server: Server) {}
+export class ChatMessageHandler extends PlayerActionHandler {
+    constructor(private server: Server) { super(); }
 
     execute(player: Player, data?: any) {
         this.server.broadcastMessage(`player.name: ${data.message}`);
     }
 }
 
-export class AuthenticateHandler implements ActionHandler {
-    constructor(private server: Server) {}
+export class AuthenticateHandler extends ActionHandler {
+    constructor(private server: Server) { super(); }
 
     execute(client: Client, data?: any) {
         const password = data.password?.trim();
@@ -61,8 +61,8 @@ export class AuthenticateHandler implements ActionHandler {
     }
 }
 
-export class JoinHandler implements ActionHandler {
-    constructor(private server: Server) {}
+export class JoinHandler extends ActionHandler {
+    constructor(private server: Server) { super(); }
 
     execute(client: Client, data: ClientMessage) {
         if (this.server.getServerState().onlinePlayers >= 2) {

@@ -40,7 +40,7 @@ export class Server {
     clients: Map<WebSocket, Client> = new Map<WebSocket, Client>();
     players: Map<WebSocket, Player> = new Map<WebSocket, Player>();
     private readonly wss: WebSocketServer;
-    private actionHandlers: Record<string, ActionHandler>;
+    private actionHandlers: Record<string, ActionHandler | PlayerActionHandler>;
     private static instance: Server;
 
     static getInstance(): Server {
