@@ -1,4 +1,5 @@
 import { ServerState } from "./server";
+import { Character } from "./character";
 
 export class EventError extends Error {
     constructor(message?: string) {
@@ -36,6 +37,13 @@ export class StatusEvent extends ServerEvent{
 
 export class PingEvent extends ServerEvent {
     event = 'ping';
+}
+
+export class CharactersSyncEvent extends ServerEvent {
+    event = 'message';
+    characters: Character[];
+
+    constructor(characters: Character[]) { super(); this.characters = characters; }
 }
 
 export class ErrorEvent extends ServerEvent {

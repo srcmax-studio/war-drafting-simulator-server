@@ -7,7 +7,7 @@ import {
     AuthenticateHandler,
     JoinHandler,
     PlayerActionHandler,
-    PongHandler,
+    PongHandler, RequestCharactersHandler,
     StatusHandler
 } from "./action";
 import { ServerEvent, ErrorEvent, EventError, StatusEvent, PlayerListEvent } from "./event";
@@ -66,6 +66,7 @@ export class Server {
         this.actionHandlers = {
             status: new StatusHandler(this),
             pong: new PongHandler(),
+            requestCharacters: new RequestCharactersHandler(this),
             authenticate: new AuthenticateHandler(this),
             join: new JoinHandler(this)
         };

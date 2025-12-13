@@ -25,6 +25,14 @@ export class PongHandler implements PlayerActionHandler {
     }
 }
 
+export class RequestCharactersHandler implements PlayerActionHandler {
+    constructor(private server: Server) {}
+
+    execute(player: Player) {
+        player.send(new CharactersSyncEvent(Array.from(this.server.characters)));
+    }
+}
+
 export class AuthenticateHandler implements ActionHandler {
     constructor(private server: Server) {}
 
