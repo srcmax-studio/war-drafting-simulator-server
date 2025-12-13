@@ -58,18 +58,20 @@ export class JoinHandler implements ActionHandler {
 
     execute(client: Client, data: ClientMessage) {
         if (this.server.getServerState().onlinePlayers >= 2) {
-            throw new EventError("服务器已满");
+            throw new EventError("服务器已满。");
         }
 
         if (this.server.config.password) {
             if (! client.authenticated) {
-                throw new EventError("未通过密码验证");
+                throw new EventError("未通过密码验证。");
             }
         }
 
         const name = data.name?.trim();
         if (!name) {
-            throw new EventError("名字不能为空");
+            throw new EventError("名字不能为空。");
+        } else if (Array.from(this.server.players.values()).some(player => player.name === name)) {
+            throw new EventError("此名字已被使用。")
         }
 
         this.server.players.set(client.ws, new Player(client.ws, name));
