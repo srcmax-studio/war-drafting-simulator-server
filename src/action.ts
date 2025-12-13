@@ -18,6 +18,12 @@ export class StatusHandler implements ActionHandler {
     }
 }
 
+export class PongHandler implements PlayerActionHandler {
+    execute(player: Player) {
+        player.pong();
+    }
+}
+
 export class AuthenticateHandler implements ActionHandler {
     constructor(private server: Server) {}
 

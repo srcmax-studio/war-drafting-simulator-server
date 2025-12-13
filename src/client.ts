@@ -1,5 +1,5 @@
 import { WebSocket } from "ws";
-import { ServerEvent } from "./event";
+import { PingEvent, ServerEvent } from "./event";
 import { Server } from "./server";
 
 export class Client {
@@ -31,10 +31,20 @@ export class Client {
 
 export class Player extends Client {
     readonly name: string;
+    lastPong: number;
 
     constructor(ws: WebSocket, name: string) {
         super(ws);
         this.name = name;
+        this.lastPong = Date.now();
+    }
+
+    public pong() {
+        this.lastPong = Date.now();
+    }
+
+    public ping() {
+        this.send(new PingEvent());
     }
 }
 

@@ -2,7 +2,14 @@ import { WebSocket, WebSocketServer } from "ws";
 import { Character } from "./character";
 import { Client, ClientMessage, Player } from "./client";
 import axios, { AxiosError } from "axios";
-import { ActionHandler, AuthenticateHandler, JoinHandler, PlayerActionHandler, StatusHandler } from "./action";
+import {
+    ActionHandler,
+    AuthenticateHandler,
+    JoinHandler,
+    PlayerActionHandler,
+    PongHandler,
+    StatusHandler
+} from "./action";
 import { ServerEvent, ErrorEvent, EventError, StatusEvent, PlayerListEvent } from "./event";
 import fs from "fs";
 import * as https from "node:https";
@@ -21,6 +28,9 @@ export interface ServerState {
 const PHASE_LOBBY = 0
 const PHASE_DRAFT = 10
 const PHASE_SIMULATING = 20
+
+const HEARTBEAT_INTERVAL = 2000;
+const HEARTBEAT_TIMEOUT = 5000;
 
 export class Server {
     readonly config;
@@ -54,6 +64,7 @@ export class Server {
 
         this.actionHandlers = {
             status: new StatusHandler(this),
+            pong: new PongHandler(),
             authenticate: new AuthenticateHandler(this),
             join: new JoinHandler(this)
         };
@@ -80,6 +91,8 @@ export class Server {
             server?.listen(config.port);
         }
 
+        this.setupHeartBeat();
+
         console.log('Listening on ' + config.host + ":" + config.port + ".");
         console.log('Server ready!');
 
@@ -94,6 +107,21 @@ export class Server {
             }
             this.publish();
         }
+    }
+
+    private setupHeartBeat() {
+        setInterval(() => {
+            const now = Date.now();
+
+            this.players.forEach(player => {
+                if (now - player.lastPong > HEARTBEAT_TIMEOUT) {
+                    player.ws.terminate();
+                    console.log(`Player ${player.name} terminated due to timeout.`);
+                } else {
+                    player.ping();
+                }
+            });
+        }, HEARTBEAT_INTERVAL);
     }
 
     private handle(client: Client, data: ClientMessage) {

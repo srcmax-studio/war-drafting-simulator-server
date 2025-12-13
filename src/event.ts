@@ -34,6 +34,10 @@ export class StatusEvent extends ServerEvent{
     }
 }
 
+export class PingEvent extends ServerEvent {
+    event = 'ping';
+}
+
 export class ErrorEvent extends ServerEvent {
     event = 'error';
     message?: string;
