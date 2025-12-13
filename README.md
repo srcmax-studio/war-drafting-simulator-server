@@ -35,7 +35,7 @@ npm run start
 | `certificate`      | Path to your certificate                                                                                     | `/path/to/fullchain.pem`             |
 | `publish-server`   | List your server on the public server list                                                                   | `true`                               |
 | `publish-endpoint` | Server list endpoint to publish                                                                              | `https://wds.srcmax.com/api/publish` |
-| `publish-ip`       | The public IP address of your server to be connected to                                                      | `public.wds.srcmax.com`              |
+| `publish-address`  | The domain name pointing to the public IP address of your server                                             | `public.wds.srcmax.com`              |
 | `password`         | Password for joining (empty for no password)                                                                 | `""`                                 |
 | `debug`            | Enable debug logging                                                                                         | `false`                              |
 
