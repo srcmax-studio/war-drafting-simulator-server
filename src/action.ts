@@ -85,7 +85,7 @@ export class JoinHandler extends ActionHandler {
         this.server.players.set(client.ws, new Player(client.ws, name));
         Logger.info(`Client ${client.remoteName} joined as ${name}. (${this.server.getServerState().onlinePlayers}/2)`);
 
-        client.send(new JoinedEvent(this.server.getPlayerNameList(), this.server.getServerState()));
+        client.send(new JoinedEvent(this.server.getPlayerNameList(), this.server.getServerState(), name));
         this.server.broadcastPlayerList();
         this.server.broadcastMessage(`${name} 加入了服务器。`);
     }

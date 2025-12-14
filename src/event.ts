@@ -68,10 +68,12 @@ export class JoinedEvent extends ServerEvent {
     event = "joined";
     players: string[];
     serverState: ServerState;
-    constructor(players: string[], serverState: ServerState) {
+    playerName: string;
+    constructor(players: string[], serverState: ServerState, playerName: string) {
         super();
         this.players = players;
         this.serverState = serverState;
+        this.playerName = playerName;
     }
 }
 
