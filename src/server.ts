@@ -117,9 +117,15 @@ export class Server {
             const now = Date.now();
 
             this.players.forEach(player => {
-                if (now - player.lastPong > HEARTBEAT_TIMEOUT) {
+                if (player.ws.readyState === WebSocket.CLOSING) {
                     player.ws.terminate();
-                    Logger.info(`Player ${player.name} terminated due to timeout.`);
+                    Logger.info(`Player ${player.name} force terminated after failed close.`);
+                    return;
+                }
+
+                if (now - player.lastPong > HEARTBEAT_TIMEOUT) {
+                    player.ws.close(4001, "由于心跳超时而关闭连接。");
+                    Logger.info(`Player ${player.name} closing due to timeout...`);
                 } else {
                     player.ping();
                 }
