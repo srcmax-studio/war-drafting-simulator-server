@@ -33,6 +33,7 @@ export class Client {
 export class Player extends Client {
     readonly name: string;
     lastPong: number;
+    ready: boolean = false;
 
     constructor(ws: WebSocket, name: string) {
         super(ws);

@@ -7,7 +7,7 @@ import {
     AuthenticateHandler, ChatMessageHandler,
     JoinHandler,
     PlayerActionHandler,
-    PongHandler, RequestCharactersHandler,
+    PongHandler, ReadyHandler, RequestCharactersHandler,
     StatusHandler
 } from "./action";
 import { ServerEvent, ErrorEvent, EventError, StatusEvent, PlayerListEvent, MessageEvent } from "./event";
@@ -70,6 +70,7 @@ export class Server {
             authenticate: new AuthenticateHandler(this),
             join: new JoinHandler(this),
             chatMessage: new ChatMessageHandler(this),
+            ready: new ReadyHandler(this),
         };
 
         Logger.info('Starting WebSocket server...');
@@ -198,17 +199,17 @@ export class Server {
         });
     }
 
-    public getPlayerNameList(): string[] {
-        let names: string[] = [];
+    public getPlayerList(): Player[] {
+        let players = [];
         for (const player of this.players.values()) {
-            names.push(player.name);
+            players.push(player);
         }
 
-        return names;
+        return players;
     }
 
     public broadcastPlayerList() {
-        this.broadcast(new PlayerListEvent(this.getPlayerNameList()));
+        this.broadcast(new PlayerListEvent(this.getPlayerList()));
     }
 
     public broadcast(event: ServerEvent) {

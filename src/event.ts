@@ -1,5 +1,6 @@
 import { ServerState } from "./server";
 import { Character } from "./character";
+import { Player } from "./client";
 
 export class EventError extends Error {
     constructor(message?: string) {
@@ -66,10 +67,10 @@ export class AuthenticatedEvent extends ServerEvent {
 
 export class JoinedEvent extends ServerEvent {
     event = "joined";
-    players: string[];
+    players: Player[];
     serverState: ServerState;
     playerName: string;
-    constructor(players: string[], serverState: ServerState, playerName: string) {
+    constructor(players: Player[], serverState: ServerState, playerName: string) {
         super();
         this.players = players;
         this.serverState = serverState;
@@ -79,9 +80,11 @@ export class JoinedEvent extends ServerEvent {
 
 export class PlayerListEvent extends ServerEvent {
     event = 'playerlist';
-    players: string[];
-    constructor(players: string[]) {
+    players: { name: string, ready: boolean }[] = [];
+    constructor(players: Player[]) {
         super();
-        this.players = players;
+        for (const player of players) {
+            this.players.push({ name: player.name, ready: player.ready });
+        }
     }
 }
