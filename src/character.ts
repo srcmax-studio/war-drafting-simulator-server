@@ -1,5 +1,6 @@
 import { Logger } from "./utils";
-import { Character } from "./common/character";
+
+import { Character } from "./common/common";
 
 export function processCharacters(collection: unknown[]): Set<Character> {
     const result = new Set<Character>();

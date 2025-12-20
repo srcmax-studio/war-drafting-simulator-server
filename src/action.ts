@@ -1,7 +1,16 @@
 import { Client, ClientMessage, Player } from "./client";
 import { Server } from "./server";
-import { AuthenticatedEvent, CharactersSyncEvent, EventError, JoinedEvent, StatusEvent } from "./event";
+import {
+    AuthenticatedEvent,
+    CharactersSyncEvent,
+    EventError,
+    JoinedEvent,
+    OpponentHoverEvent, OpponentUnhoverEvent, SelectEvent,
+    StatusEvent,
+    SyncClockEvent
+} from "./event";
 import { Logger } from "./utils";
+import { DRAFT_STAGE_INIT, DRAFT_STAGE_PASSIVE, DRAFT_STAGE_PASSIVE_DISCARD } from "./common/common";
 
 export abstract class ActionHandler {
     abstract execute(client: Client, data?: any): void;
@@ -20,8 +29,10 @@ export class StatusHandler extends ActionHandler {
 }
 
 export class PongHandler extends PlayerActionHandler {
-    execute(player: Player) {
+    execute(player: Player, data?: any) {
         player.pong();
+
+        player.send(new SyncClockEvent(data.clientSentAt ?? Date.now()));
     }
 }
 
@@ -98,5 +109,101 @@ export class ReadyHandler extends PlayerActionHandler {
         player.ready = true;
 
         this.server.broadcastPlayerList();
+        this.server.broadcastMessage(`${player.name} 准备好了。`);
+
+        const players= this.server.getPlayerList();
+
+        if (players.length < 2) return;
+        for (const player of players) if (! player.ready) return;
+
+        this.server.startGame();
+        this.server.broadcastMessage("所有玩家准备完成，对局开始。");
+    }
+}
+
+export class HoverHandler extends PlayerActionHandler {
+    execute(player: Player, data: ClientMessage) {
+        player.getOtherPlayer().send(new OpponentHoverEvent(data.hovering));
+    }
+}
+
+export class UnhoverHandler extends PlayerActionHandler {
+    execute(player: Player) {
+        player.getOtherPlayer().send(new OpponentUnhoverEvent());
+    }
+}
+
+export class SelectHandler extends PlayerActionHandler {
+    constructor(private server: Server) { super(); }
+
+    execute(player: Player, data: ClientMessage) {
+        this.server.broadcast(new SelectEvent(data.selected));
+    }
+}
+
+export class DecidePassiveDiscardHandler extends PlayerActionHandler {
+    constructor(private server: Server) { super(); }
+
+    execute(player: Player, data: ClientMessage) {
+        const game = this.server.getGame();
+        if (! game ||
+            game.getDraftStage() !== DRAFT_STAGE_PASSIVE_DISCARD ||
+            game.getInitiativePlayer() === player
+        ) return;
+
+        game.clearTimeout();
+        game.settlePassiveDiscard(data.discard);
+    }
+}
+
+export class InitDiscardHandler extends PlayerActionHandler {
+    constructor(private server: Server) { super(); }
+
+    execute(player: Player, data: ClientMessage) {
+        const game = this.server.getGame();
+        if (! game ||
+            game.getDraftStage() !== DRAFT_STAGE_INIT ||
+            game.getInitiativePlayer() !== player ||
+            player.initDiscardRemaining < 1
+        ) return;
+
+        player.initDiscardRemaining --;
+        game.clearTimeout();
+        game.newDraftRound();
+    }
+}
+
+export class CardSelectHandler extends PlayerActionHandler {
+    constructor(private server: Server) { super(); }
+
+    execute(player: Player, data: ClientMessage) {
+        const game = this.server.getGame();
+        if (! game) return;
+
+        if (game.getDraftStage() === DRAFT_STAGE_INIT) {
+            if (player !== game.getInitiativePlayer()) return;
+
+            game.clearTimeout();
+            game.settleSelect(player, data.selected, () => game.startPassiveStage());
+        }
+
+        if (game.getDraftStage() === DRAFT_STAGE_PASSIVE) {
+            if (player !== game.getPassivePlayer()) return;
+
+            game.clearTimeout();
+            game.settleSelect(player, data.selected, () => game.newDraftRound());
+        }
+    }
+}
+
+export class SwapPositionAction extends PlayerActionHandler {
+    constructor(private server: Server) { super(); }
+
+    execute(player: Player, data: ClientMessage) {
+        const game = this.server.getGame();
+        if (! game) return;
+
+        player.deck?.switchPositions(data.sourcePos, data.targetPos);
+        game.broadcastDecks();
     }
 }

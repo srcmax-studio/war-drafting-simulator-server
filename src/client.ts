@@ -2,6 +2,7 @@ import { WebSocket } from "ws";
 import { PingEvent, ServerEvent } from "./event";
 import { Server } from "./server";
 import { Logger } from "./utils";
+import { PlayerDeck } from "./common/common";
 
 export class Client {
     ws: WebSocket;
@@ -30,10 +31,16 @@ export class Client {
     }
 }
 
+export const DISCARD_MAX_INITIATIVE = 5;
+export const DISCARD_MAX_PASSIVE = 1;
+
 export class Player extends Client {
     readonly name: string;
     lastPong: number;
     ready: boolean = false;
+    initDiscardRemaining = DISCARD_MAX_INITIATIVE;
+    passiveDiscardRemaining = DISCARD_MAX_PASSIVE;
+    deck: PlayerDeck | null = null;
 
     constructor(ws: WebSocket, name: string) {
         super(ws);
@@ -47,6 +54,14 @@ export class Player extends Client {
 
     public ping() {
         this.send(new PingEvent());
+    }
+
+    public hasInitiative(): boolean {
+        return Server.getInstance().getGame()?.getInitiativePlayer() === this;
+    }
+
+    public getOtherPlayer(): Player {
+        return <Player>Server.getInstance().getGame()?.getOtherPlayer(this);
     }
 }
 

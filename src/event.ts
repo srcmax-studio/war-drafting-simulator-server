@@ -1,5 +1,6 @@
 import { Server, ServerState } from "./server";
 import { Player } from "./client";
+import { Character, PlayerDeck } from "./common/common";
 
 export class EventError extends Error {
     constructor(message?: string) {
@@ -70,7 +71,9 @@ export class AuthenticatedEvent extends ServerEvent {
 
 interface IPlayer {
     name: string,
-    ready: boolean
+    ready?: boolean,
+    initDiscardRemaining?: number,
+    passiveDiscardRemaining?: number
 }
 
 export class JoinedEvent extends ServerEvent {
@@ -80,19 +83,96 @@ export class JoinedEvent extends ServerEvent {
     playerName: string;
     constructor(players: Player[], serverState: ServerState, playerName: string) {
         super();
-        this.players = players.map(({ name, ready }) => ({ name, ready }));
+        this.players = players.map(({ name, ready }
+        ) => ({ name, ready }));
         this.serverState = serverState;
         this.playerName = playerName;
     }
 }
 
+export class SyncClockEvent extends ServerEvent {
+    event = 'syncClock';
+    serverTime = Date.now();
+    clientSentAt: number;
+    constructor(clientSentAt: number) {
+        super();
+        this.clientSentAt = clientSentAt;
+    }
+}
+
 export class PlayerListEvent extends ServerEvent {
     event = 'playerlist';
-    players: { name: string, ready: boolean }[] = [];
+    players: IPlayer[];
     constructor(players: Player[]) {
         super();
-        for (const player of players) {
-            this.players.push({ name: player.name, ready: player.ready });
+        this.players = players.map(({ name, ready }
+        ) => ({ name, ready }));
+    }
+}
+
+export class GameStartEvent extends ServerEvent {
+    event = 'gameStart';
+    initiativePlayer: string;
+    constructor(initiativePlayer: string) {
+        super();
+        this.initiativePlayer = initiativePlayer;
+    }
+}
+
+export class GameEndEvent extends ServerEvent {
+    event = 'gameEnd';
+}
+
+export class DraftEvent extends ServerEvent {
+    event = 'draft';
+    round: number;
+    draftStage: number;
+    characters: Character[];
+    endTime: number;
+    initiativePlayer: string;
+    players: IPlayer[];
+    constructor(round: number, draftStage: number, initiativePlayer: string, characters: Character[], duration: number) {
+        super();
+        this.round = round;
+        this.draftStage = draftStage;
+        this.initiativePlayer = initiativePlayer;
+        this.characters = characters;
+        this.endTime = Date.now() + duration;
+
+        this.players = Server.getInstance().getPlayerList().map(({ name, initDiscardRemaining, passiveDiscardRemaining }
+        ) => ({ name, initDiscardRemaining, passiveDiscardRemaining }));
+    }
+}
+
+export class PlayerDeckUpdateEvent extends ServerEvent {
+    event = 'deckUpdate';
+    decks: { name: string, data: string }[] = []
+    constructor(decks: PlayerDeck[]) {
+        super();
+        for (const deck of decks) {
+            this.decks.push({ name: deck.name, data: deck.serialize() })
         }
+    }
+}
+
+export class OpponentHoverEvent extends ServerEvent {
+    event = 'opponentHover';
+    hovering: string;
+    constructor(hovering: string) {
+        super();
+        this.hovering = hovering;
+    }
+}
+
+export class OpponentUnhoverEvent extends ServerEvent {
+    event = 'opponentUnhover';
+}
+
+export class SelectEvent extends ServerEvent {
+    event = 'select';
+    selected: string;
+    constructor(selected: string) {
+        super();
+        this.selected = selected;
     }
 }

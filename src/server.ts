@@ -1,19 +1,30 @@
 import { WebSocket, WebSocketServer } from "ws";
-import { Character } from "./character";
 import { Client, ClientMessage, Player } from "./client";
 import axios, { AxiosError } from "axios";
 import {
     ActionHandler,
-    AuthenticateHandler, ChatMessageHandler,
+    AuthenticateHandler,
+    CardSelectHandler,
+    ChatMessageHandler,
+    DecidePassiveDiscardHandler,
+    HoverHandler,
+    InitDiscardHandler,
     JoinHandler,
     PlayerActionHandler,
-    PongHandler, ReadyHandler, RequestCharactersHandler,
-    StatusHandler
+    PongHandler,
+    ReadyHandler,
+    RequestCharactersHandler,
+    SelectHandler,
+    StatusHandler, SwapPositionAction,
+    UnhoverHandler
 } from "./action";
-import { ServerEvent, ErrorEvent, EventError, StatusEvent, PlayerListEvent, MessageEvent } from "./event";
+import { ServerEvent, ErrorEvent, EventError, StatusEvent, PlayerListEvent, MessageEvent, GameEndEvent } from "./event";
 import fs from "fs";
 import * as https from "node:https";
 import { Logger } from "./utils";
+import { Game } from "./game";
+
+import { Character } from "./common/common";
 
 export interface ServerState {
     title: string,
@@ -42,6 +53,7 @@ export class Server {
     private readonly wss: WebSocketServer;
     private actionHandlers: Record<string, ActionHandler | PlayerActionHandler>;
     private static instance: Server;
+    private game: Game | null = null;
 
     static getInstance(): Server {
         return this.instance;
@@ -71,6 +83,13 @@ export class Server {
             join: new JoinHandler(this),
             chatMessage: new ChatMessageHandler(this),
             ready: new ReadyHandler(this),
+            hover: new HoverHandler(),
+            unhover: new UnhoverHandler(),
+            select: new SelectHandler(this),
+            decidePassiveDiscard: new DecidePassiveDiscardHandler(this),
+            cardSelect: new CardSelectHandler(this),
+            initDiscard: new InitDiscardHandler(this),
+            swapPosition: new SwapPositionAction(this)
         };
 
         Logger.info('Starting WebSocket server...');
@@ -113,6 +132,34 @@ export class Server {
         }
     }
 
+    public startGame() {
+        for (const player of this.players.values()) {
+            player.ready = false;
+        }
+
+        this.game = new Game(this);
+    }
+
+    public endGame() {
+        this.game?.terminate();
+        this.game = null;
+
+        this.broadcast(new GameEndEvent());
+        this.setPhase(PHASE_LOBBY);
+    }
+
+    public getGame() {
+        return this.game;
+    }
+
+    public getPhase(): number {
+        return this.getServerState().phase;
+    }
+
+    public setPhase(phase: number) {
+        this.getServerState().phase = phase;
+    }
+
     private setupHeartBeat() {
         setInterval(() => {
             const now = Date.now();
@@ -125,7 +172,7 @@ export class Server {
                 }
 
                 if (now - player.lastPong > HEARTBEAT_TIMEOUT) {
-                    player.ws.close(4001, "由于心跳超时而关闭连接。");
+                    player.ws.close(4001, "由于心跳超时，服务器已关闭连接。");
                     Logger.info(`Player ${player.name} closing due to timeout...`);
                 } else {
                     player.ping();
@@ -176,6 +223,11 @@ export class Server {
                     this.players.delete(ws);
                     this.broadcastPlayerList();
                     this.broadcastMessage(`${player?.name} 退出了服务器。`);
+
+                    if (this.game && this.getPhase() !== PHASE_LOBBY) {
+                        this.endGame();
+                        this.broadcastMessage("由于有玩家中途退出，对局结束。");
+                    }
                 }
             });
 
