@@ -1,5 +1,4 @@
-import { ServerState } from "./server";
-import { Character } from "./character";
+import { Server, ServerState } from "./server";
 import { Player } from "./client";
 
 export class EventError extends Error {
@@ -13,6 +12,10 @@ export abstract class ServerEvent {
 
     serialize(): string {
         return JSON.stringify(this);
+    }
+
+    broadcast() {
+        Server.getInstance().broadcast(this);
     }
 }
 
