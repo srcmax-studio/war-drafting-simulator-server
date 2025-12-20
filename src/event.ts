@@ -65,14 +65,19 @@ export class AuthenticatedEvent extends ServerEvent {
     event = 'authenticated';
 }
 
+interface IPlayer {
+    name: string,
+    ready: boolean
+}
+
 export class JoinedEvent extends ServerEvent {
     event = "joined";
-    players: Player[];
+    players: IPlayer[];
     serverState: ServerState;
     playerName: string;
     constructor(players: Player[], serverState: ServerState, playerName: string) {
         super();
-        this.players = players;
+        this.players = players.map(({ name, ready }) => ({ name, ready }));
         this.serverState = serverState;
         this.playerName = playerName;
     }
