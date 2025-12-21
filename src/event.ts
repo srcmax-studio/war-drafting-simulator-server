@@ -176,3 +176,7 @@ export class SelectEvent extends ServerEvent {
         this.selected = selected;
     }
 }
+
+export class SimulationStartEvent extends ServerEvent {
+    event = 'simulationStart';
+}

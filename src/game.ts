@@ -1,14 +1,14 @@
 import { Server } from "./server";
 import { Logger, shuffle } from "./utils";
 import { DISCARD_MAX_INITIATIVE, DISCARD_MAX_PASSIVE, Player } from "./client";
-import { DraftEvent, GameStartEvent, PlayerDeckUpdateEvent } from "./event";
+import { DraftEvent, GameStartEvent, PlayerDeckUpdateEvent, SimulationStartEvent } from "./event";
 
 import {
     Character,
     DRAFT_STAGE_INIT,
     DRAFT_STAGE_PASSIVE,
     DRAFT_STAGE_PASSIVE_DISCARD,
-    PHASE_DRAFT,
+    PHASE_DRAFT, PHASE_SIMULATING,
     PlayerDeck
 } from "./common/common";
 
@@ -93,6 +93,11 @@ export class Game {
         return <Player>this.getOtherPlayer(this.getInitiativePlayer());
     }
 
+    private startSimulation() {
+        this.server.getServerState().phase = PHASE_SIMULATING;
+        this.server.broadcast(new SimulationStartEvent());
+    }
+
     private newPack() {
         if (this.deck.length < Game.PACK_SIZE) {
             Logger.warning("Deck ran out of cards! Cannot draw a full pack.");
@@ -111,6 +116,11 @@ export class Game {
     }
 
     public newDraftRound(firstRound: boolean = false) {
+        if (this.initiative?.deck?.isComplete()) {
+            this.startSimulation();
+            return;
+        }
+
         if (! firstRound) {
             this.switchInitiativePlayer();
         }
