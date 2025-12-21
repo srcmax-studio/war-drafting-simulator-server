@@ -25,6 +25,7 @@ import { Logger } from "./utils";
 import { Game } from "./game";
 
 import { Character } from "./common/common";
+import { GoogleGenAI } from "@google/genai";
 
 export interface ServerState {
     title: string,
@@ -54,6 +55,7 @@ export class Server {
     private actionHandlers: Record<string, ActionHandler | PlayerActionHandler>;
     private static instance: Server;
     private game: Game | null = null;
+    ai: GoogleGenAI;
 
     static getInstance(): Server {
         return this.instance;
@@ -93,6 +95,8 @@ export class Server {
         };
 
         Logger.info('Starting WebSocket server...');
+
+        this.ai = new GoogleGenAI({ apiKey: config["gemini-api-key"] });
 
         let server;
         let options: any = { host: config.host };

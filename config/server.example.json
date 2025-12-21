@@ -6,8 +6,11 @@
   "tls": true,
   "private-key": "/path/to/privkey.pem",
   "certificate": "/path/to/fullchain.pem",
+  "gemini-api-key": "YOUR_API_KEY",
+  "gemini-model": "gemini-3-flash-preview",
   "publish-server": true,
   "publish-endpoint": "https://wds.srcmax.com/api/publish",
   "publish-address": "public.wds.srcmax.com",
-  "password": ""
+  "password": "",
+  "debug": false
 }

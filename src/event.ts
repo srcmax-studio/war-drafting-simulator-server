@@ -180,3 +180,12 @@ export class SelectEvent extends ServerEvent {
 export class SimulationStartEvent extends ServerEvent {
     event = 'simulationStart';
 }
+
+export class SimulationStreamEvent extends ServerEvent {
+    event = 'simulationStream';
+    text: string;
+    constructor(text: string) {
+        super();
+        this.text = text;
+    }
+}

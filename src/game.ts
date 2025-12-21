@@ -1,7 +1,13 @@
 import { Server } from "./server";
 import { Logger, shuffle } from "./utils";
 import { DISCARD_MAX_INITIATIVE, DISCARD_MAX_PASSIVE, Player } from "./client";
-import { DraftEvent, GameStartEvent, PlayerDeckUpdateEvent, SimulationStartEvent } from "./event";
+import {
+    DraftEvent,
+    GameStartEvent,
+    PlayerDeckUpdateEvent,
+    SimulationStartEvent,
+    SimulationStreamEvent
+} from "./event";
 
 import {
     Character,
@@ -9,8 +15,10 @@ import {
     DRAFT_STAGE_PASSIVE,
     DRAFT_STAGE_PASSIVE_DISCARD,
     PHASE_DRAFT, PHASE_SIMULATING,
-    PlayerDeck
+    PlayerDeck, POSITIONS
 } from "./common/common";
+import fs from "fs";
+import path from "path";
 
 const DRAFT_DURATION_PASSIVE_DISCARD = 30000;
 const DRAFT_DURATION_INIT = 60000;
@@ -96,6 +104,7 @@ export class Game {
     private startSimulation() {
         this.server.getServerState().phase = PHASE_SIMULATING;
         this.server.broadcast(new SimulationStartEvent());
+        this.simulate();
     }
 
     private newPack() {
@@ -193,5 +202,37 @@ export class Game {
         }
 
         this.server.broadcast(new PlayerDeckUpdateEvent(decks));
+    }
+
+    public async simulate() {
+        const promptContent: string = fs.readFileSync(
+            path.resolve(process.cwd(), "config/prompt", "prompt.txt"), "utf8"
+        );
+
+        const player1 = this.getInitiativePlayer().deck;
+        const player2 = this.getPassivePlayer().deck;
+        let player1Deck: any = {}; let player2Deck: any = {};
+        for (const pos of POSITIONS) {
+            player1Deck[pos.key] = player1?.getPosition(pos.key);
+            player2Deck[pos.key] = player2?.getPosition(pos.key);
+        }
+
+        const response = await this.server.ai.models.generateContentStream({
+            model: this.server.config["gemini-model"],
+            contents: promptContent.replace("##DECKDATA##", JSON.stringify({
+                player1: player1Deck,
+                player2: player2Deck
+            })),
+        });
+
+        for await (const chunk of response) {
+            if (chunk.candidates) {
+                for (const part of chunk.candidates[0].content?.parts ?? []) {
+                    if (part.text) {
+                        this.server.broadcast(new SimulationStreamEvent(part.text));
+                    }
+                }
+            }
+        }
     }
 }
