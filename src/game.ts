@@ -10,7 +10,7 @@ import {
 } from "./event";
 
 import {
-    Character,
+    Character, DRAFT_STAGE_FINAL_CHANGES,
     DRAFT_STAGE_INIT,
     DRAFT_STAGE_PASSIVE,
     DRAFT_STAGE_PASSIVE_DISCARD,
@@ -23,6 +23,7 @@ import path from "path";
 const DRAFT_DURATION_PASSIVE_DISCARD = 30000;
 const DRAFT_DURATION_INIT = 60000;
 const DRAFT_DURATION_PASSIVE = 45000;
+const DRAFT_DURATION_FINAL_CHANGES = 60000;
 
 export class Game {
     private static readonly PACK_SIZE = 5;
@@ -126,7 +127,11 @@ export class Game {
 
     public newDraftRound(firstRound: boolean = false) {
         if (this.initiative?.deck?.isComplete()) {
-            this.startSimulation();
+            this.server.broadcast(new DraftEvent(-1, DRAFT_STAGE_FINAL_CHANGES, this.getInitiativePlayer().name, [], DRAFT_DURATION_FINAL_CHANGES));
+
+            this.createTimeout(() => {
+                this.startSimulation();
+            }, DRAFT_DURATION_FINAL_CHANGES);
             return;
         }
 
