@@ -244,5 +244,7 @@ export class Game {
                 }
             }
         }
+
+        this.server.endGame();
     }
 }
