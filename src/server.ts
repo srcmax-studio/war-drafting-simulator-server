@@ -18,7 +18,15 @@ import {
     StatusHandler, SwapPositionAction,
     UnhoverHandler
 } from "./action";
-import { ServerEvent, ErrorEvent, EventError, StatusEvent, PlayerListEvent, MessageEvent, GameEndEvent } from "./event";
+import {
+    ServerEvent,
+    ErrorEvent,
+    EventError,
+    StatusEvent,
+    PlayerListEvent,
+    MessageEvent,
+    GameEndEvent, GamePausedEvent
+} from "./event";
 import fs from "fs";
 import * as https from "node:https";
 import { Logger } from "./utils";
@@ -46,6 +54,8 @@ const PHASE_SIMULATING = 20
 const HEARTBEAT_INTERVAL = 2000;
 const HEARTBEAT_TIMEOUT = 5000;
 
+const RECONNECT_INTERVAL = 60000;
+
 export class Server {
     readonly config;
     readonly characters: Set<Character>;
@@ -57,6 +67,8 @@ export class Server {
     private static instance: Server;
     private game: Game | null = null;
     private generationProvider: GenerationProvider;
+    reconnectTimeout: NodeJS.Timeout | null = null;
+    disconnectedPlayer: Player | undefined;
 
     static getInstance(): Server {
         return this.instance;
@@ -227,7 +239,9 @@ export class Server {
 
             ws.on('close', () => {
                 this.clients.delete(ws);
-                if (this.players.has(ws)) {
+                if (! this.players.size) {
+                    this.endGame();
+                } else if (this.players.has(ws)) {
                     const player = this.players.get(ws);
 
                     Logger.info(`Player ${player?.name} left. (${(this.getServerState().onlinePlayers-1)}/2)`);
@@ -235,9 +249,18 @@ export class Server {
                     this.broadcastPlayerList();
                     this.broadcastMessage(`${player?.name} 退出了服务器。`);
 
-                    if (this.game && this.getPhase() !== PHASE_LOBBY) {
-                        this.endGame();
-                        this.broadcastMessage("由于有玩家中途退出，对局结束。");
+                    if (this.game && this.getPhase() === PHASE_DRAFT) {
+                        if (this.game.timer && ! this.game.timer.isPaused()) {
+                            this.game.timer.pause();
+                            this.disconnectedPlayer = player;
+
+                            this.broadcastMessage(`由于有玩家中途退出，游戏暂停。重连限时为 ${Math.floor(( RECONNECT_INTERVAL / 1000 ))} 秒。`);
+                            this.broadcast(new GamePausedEvent(RECONNECT_INTERVAL));
+                            this.reconnectTimeout = setTimeout(() => {
+                                this.endGame();
+                                this.broadcastMessage("由于有玩家重连超时，对局结束。");
+                            }, RECONNECT_INTERVAL);
+                        }
                     }
                 }
             });

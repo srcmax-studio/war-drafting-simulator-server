@@ -54,3 +54,44 @@ export function shuffle<T>(array: T[]): T[] {
 
     return array;
 }
+
+export class Timer {
+    private remaining: number;
+    private readonly callback: () => void;
+    private timeout: NodeJS.Timeout | undefined;
+    private start: number | undefined;
+
+    constructor(callback: () => void, delay: number) {
+        this.remaining = delay;
+        this.callback = callback;
+        this.resume();
+    }
+
+    pause(): void {
+        if (this.timeout !== undefined) {
+            clearTimeout(this.timeout);
+            this.timeout = undefined;
+
+            if (this.start !== undefined) {
+                this.remaining -= Date.now() - this.start;
+            }
+        }
+    }
+
+    resume(): void {
+        if (this.timeout) {
+            return;
+        }
+
+        this.start = Date.now();
+        this.timeout = setTimeout(this.callback, this.remaining);
+    }
+
+    clear(): void {
+        clearTimeout(this.timeout);
+    }
+
+    isPaused(): boolean {
+        return !this.timeout;
+    }
+}

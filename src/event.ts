@@ -189,3 +189,12 @@ export class SimulationStreamEvent extends ServerEvent {
         this.text = text;
     }
 }
+
+export class GamePausedEvent extends ServerEvent {
+    event = 'gamePaused';
+    endTime: number;
+    constructor(duration: number) {
+        super();
+        this.endTime = Date.now() + duration;
+    }
+}

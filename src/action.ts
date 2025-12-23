@@ -2,8 +2,8 @@ import { Client, ClientMessage, Player } from "./client";
 import { Server } from "./server";
 import {
     AuthenticatedEvent,
-    CharactersSyncEvent,
-    EventError,
+    CharactersSyncEvent, DraftEvent,
+    EventError, GameStartEvent,
     JoinedEvent,
     OpponentHoverEvent, OpponentUnhoverEvent, SelectEvent,
     StatusEvent,
@@ -99,6 +99,33 @@ export class JoinHandler extends ActionHandler {
         client.send(new JoinedEvent(this.server.getPlayerList(), this.server.getServerState(), name));
         this.server.broadcastPlayerList();
         this.server.broadcastMessage(`${name} 加入了服务器。`);
+
+        if (this.server.reconnectTimeout) {
+            const game = this.server.getGame();
+            if (this.server.disconnectedPlayer && this.server.disconnectedPlayer.name == name && game && game.lastDraftEvent) {
+                clearTimeout(this.server.reconnectTimeout);
+                this.server.reconnectTimeout.close();
+
+                this.server.disconnectedPlayer.ws = client.ws;
+                this.server.disconnectedPlayer.lastPong = Date.now();
+
+                this.server.players.set(client.ws, this.server.disconnectedPlayer);
+                this.server.broadcast(new GameStartEvent(game.getInitiativePlayer().name));
+
+                setTimeout(() => {
+                    game.timer?.resume();
+                    game.broadcastDecks();
+                    this.server.broadcast(<DraftEvent>game.lastDraftEvent);
+                }, 1000);
+
+                this.server.broadcastMessage("由于玩家重新连接，对局继续。");
+            } else {
+                this.server.endGame();
+                this.server.broadcastMessage("由于有新的玩家加入，原先的对局已结束。");
+            }
+
+            this.server.reconnectTimeout = null;
+        }
     }
 }
 

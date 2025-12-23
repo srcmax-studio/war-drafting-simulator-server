@@ -1,5 +1,5 @@
 import { Server } from "./server";
-import { Logger, shuffle } from "./utils";
+import { Logger, shuffle, Timer } from "./utils";
 import { DISCARD_MAX_INITIATIVE, DISCARD_MAX_PASSIVE, Player } from "./client";
 import {
     DraftEvent,
@@ -34,8 +34,9 @@ export class Game {
     private initiative: Player | null = null;
     private draftStage: number = -1;
     private draftRound : number = 0;
-    private timeout: NodeJS.Timeout | null = null;
+    timer: Timer | null = null;
     private skipInitSwitch: boolean = false;
+    lastDraftEvent: DraftEvent | null = null;
 
     constructor(server: Server) {
         this.server = server;
@@ -58,12 +59,13 @@ export class Game {
     }
 
     public createTimeout(cb: () => void, duration: number) {
-        this.timeout = setTimeout(cb, duration);
+        this.timer = new Timer(cb, duration);
     }
 
     public clearTimeout() {
-        if (this.timeout) {
-            clearTimeout(this.timeout);
+        if (this.timer) {
+            this.timer.clear();
+            this.timer = null;
         }
     }
 
@@ -127,7 +129,7 @@ export class Game {
 
     public newDraftRound(firstRound: boolean = false) {
         if (this.initiative?.deck?.isComplete()) {
-            this.server.broadcast(new DraftEvent(-1, DRAFT_STAGE_FINAL_CHANGES, this.getInitiativePlayer().name, [], DRAFT_DURATION_FINAL_CHANGES));
+            this.server.broadcast(this.makeDraftEvent(DRAFT_STAGE_FINAL_CHANGES, DRAFT_DURATION_FINAL_CHANGES));
 
             this.createTimeout(() => {
                 this.startSimulation();
@@ -146,7 +148,8 @@ export class Game {
     private makeDraftEvent(draftStage: number, duration: number): DraftEvent {
         this.draftStage = draftStage;
 
-        return new DraftEvent(this.draftRound, draftStage, this.getInitiativePlayer().name, this.currentPack ?? [], duration);
+        this.lastDraftEvent =  new DraftEvent(draftStage === DRAFT_STAGE_FINAL_CHANGES ? -1 : this.draftRound, draftStage, this.getInitiativePlayer().name, this.currentPack ?? [], duration);
+        return this.lastDraftEvent;
     }
 
     private startPassiveDiscardStage() {
