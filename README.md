@@ -3,7 +3,7 @@ Server software for [WDS](https://wds.srcmax.com).
 
 ## Requirements
 - Node.js > 20
-- A [Gemini API Key](https://ai.google.dev/gemini-api/docs/api-key?hl=zh-cn)
+- A text generation(LLM) API
 
 ## Setup
 Make sure to clone with the characters data submodule:
@@ -25,22 +25,24 @@ npm run start
 
 ## Configuration
 
-| Parameter          | Description                                                                                                                                   | Default                              |
-|--------------------|-----------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------|
-| `host`             | Server bind address                                                                                                                           | `0.0.0.0`                            |
-| `port`             | Port server listens on                                                                                                                        | `3001`                               |
-| `title`            | Server title                                                                                                                                  | `WDS Game`                           |
-| `owner`            | Server owner                                                                                                                                  | `SrcMax Studio`                      |
-| `tls`              | Enable TLS for WebSocket server. Required when using HTTPS in web client or modern browsers will not connect                                  | `true`                               |
-| `private-key`      | Path to your private key                                                                                                                      | `/path/to/privkey.pem`               |
-| `certificate`      | Path to your certificate                                                                                                                      | `/path/to/fullchain.pem`             |
-| `gemini-api-key`   | Your [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key)                                                                          | `YOUR_API_KEY`                       |
-| `gemini-model`     | The [Gemini model](https://ai.google.dev/gemini-api/docs/models?hl=zh-cn) to use                                                              | `gemini-3-flash-preview`             |
-| `publish-server`   | List your server on the public server list                                                                                                    | `true`                               |
-| `publish-endpoint` | Server list endpoint to publish                                                                                                               | `https://wds.srcmax.com/api/publish` |
-| `publish-address`  | The domain name pointing to the public IP address of your server                                                                              | `public.wds.srcmax.com`              |
-| `password`         | Password for joining (empty for no password)                                                                                                  | `""`                                 |
-| `debug`            | Enable debug logging                                                                                                                          | `false`                              |
+| Parameter             | Description                                                                                                                                                | Default                                      |
+|-----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------|----------------------------------------------|
+| `host`                | Server bind address                                                                                                                                        | `0.0.0.0`                                    |
+| `port`                | Port server listens on                                                                                                                                     | `3001`                                       |
+| `title`               | Server title                                                                                                                                               | `WDS Game`                                   |
+| `owner`               | Server owner                                                                                                                                               | `SrcMax Studio`                              |
+| `tls`                 | Enable TLS for WebSocket server. Required when using HTTPS in web client or modern browsers will not connect                                               | `true`                                       |
+| `private-key`         | Path to your private key                                                                                                                                   | `/path/to/privkey.pem`                       |
+| `certificate`         | Path to your certificate                                                                                                                                   | `/path/to/fullchain.pem`                     |
+| `generation.provider` | Your text generation provider. `gemini` or `openai` for any OpenAI-compatible API                                                                          | `gemini`                                     |
+| `generation.baseUrl`  | The base URL of an [OpenAI-compatible API](https://platform.openai.com/docs/api-reference/introduction). This option is specific to the `openai` provider. | `https://api.openai.com/v1/chat/completions` |
+| `generation.apiKey`   | Your [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key)  or the API key to your OpenAI-compatible API                                         | `YOUR_API_KEY`                               |
+| `generation.model`    | The text generation model ([Gemini model](https://ai.google.dev/gemini-api/docs/models)) to use                                                            | `gemini-3-flash-preview`                     |
+| `publish-server`      | List your server on the public server list                                                                                                                 | `true`                                       |
+| `publish-endpoint`    | Server list endpoint to publish                                                                                                                            | `https://wds.srcmax.com/api/publish`         |
+| `publish-address`     | The domain name pointing to the public IP address of your server                                                                                           | `public.wds.srcmax.com`                      |
+| `password`            | Password for joining (empty for no password)                                                                                                               | `""`                                         |
+| `debug`               | Enable debug logging                                                                                                                                       | `false`                                      |
 
 ## License
 This project is licensed under MIT.

@@ -222,27 +222,20 @@ export class Game {
             player2Deck[pos.key] = player2?.getPosition(pos.key);
         }
 
-        const response = await this.server.ai.models.generateContentStream({
-            model: this.server.config["gemini-model"],
-            contents: promptContent.replace("##DECKDATA##", JSON.stringify({
+        const response = this.server.getGenerationProvider().generateStream(
+            promptContent.replace("##DECKDATA##", JSON.stringify({
                 player1: player1Deck,
                 player2: player2Deck
-            })),
-        });
+            }))
+        );
 
         for await (const chunk of response) {
-            if (chunk.candidates) {
-                for (const part of chunk.candidates[0].content?.parts ?? []) {
-                    if (part.text != undefined && part.text) {
-                        this.server.broadcast(new SimulationStreamEvent(part.text
-                            .replace("P1阵营", this.getInitiativePlayer().name + "(P1)阵营")
-                            .replace("P1", this.getInitiativePlayer().name + "(P1)阵营")
-                            .replace("P2阵营", this.getPassivePlayer().name + "(P2)阵营")
-                            .replace("P2", this.getPassivePlayer().name + "(P2)阵营")
-                        ));
-                    }
-                }
-            }
+            this.server.broadcast(new SimulationStreamEvent(chunk
+                .replace("P1阵营", this.getInitiativePlayer().name + "(P1)阵营")
+                .replace("P1", this.getInitiativePlayer().name + "(P1)阵营")
+                .replace("P2阵营", this.getPassivePlayer().name + "(P2)阵营")
+                .replace("P2", this.getPassivePlayer().name + "(P2)阵营")
+            ));
         }
 
         this.server.endGame();
