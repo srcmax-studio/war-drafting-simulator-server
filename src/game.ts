@@ -19,6 +19,7 @@ import {
 } from "./common/common";
 import fs from "fs";
 import path from "path";
+import { OpenAI } from "openai";
 
 const DRAFT_DURATION_PASSIVE_DISCARD = 30000;
 const DRAFT_DURATION_INIT = 60000;
@@ -33,7 +34,7 @@ export class Game {
     private currentPack: Character[] = [];
     private initiative: Player | null = null;
     private draftStage: number = -1;
-    private draftRound : number = 0;
+    private draftRound: number = 0;
     private timeout: NodeJS.Timeout | null = null;
     private skipInitSwitch: boolean = false;
 
@@ -135,11 +136,11 @@ export class Game {
             return;
         }
 
-        if (! firstRound) {
+        if (!firstRound) {
             this.switchInitiativePlayer();
         }
 
-        this.draftRound ++;
+        this.draftRound++;
         this.newPack();
     }
 
@@ -172,7 +173,7 @@ export class Game {
 
     public settlePassiveDiscard(discard: boolean = false) {
         if (discard) {
-            this.getPassivePlayer().passiveDiscardRemaining --;
+            this.getPassivePlayer().passiveDiscardRemaining--;
             this.skipInitSwitch = true;
 
             this.newDraftRound();
@@ -199,7 +200,7 @@ export class Game {
     public broadcastDecks() {
         let decks: PlayerDeck[] = [];
         for (const player of this.server.getPlayerList()) {
-            if (! player.deck) {
+            if (!player.deck) {
                 continue;
             }
 
@@ -222,26 +223,28 @@ export class Game {
             player2Deck[pos.key] = player2?.getPosition(pos.key);
         }
 
-        const response = await this.server.ai.models.generateContentStream({
-            model: this.server.config["gemini-model"],
-            contents: promptContent.replace("##DECKDATA##", JSON.stringify({
-                player1: player1Deck,
-                player2: player2Deck
-            })),
+        const response = await this.server.ai.chat.completions.create({
+            model: this.server.config["openai-model"],
+            stream: true,
+            messages: [{
+                role: "user",
+                content: promptContent.replace("##DECKDATA##", JSON.stringify({
+                    player1: player1Deck,
+                    player2: player2Deck
+                })),
+            }],
         });
 
         for await (const chunk of response) {
-            if (chunk.candidates) {
-                for (const part of chunk.candidates[0].content?.parts ?? []) {
-                    if (part.text != undefined && part.text) {
-                        this.server.broadcast(new SimulationStreamEvent(part.text
-                            .replace("P1阵营", this.getInitiativePlayer().name + "(P1)阵营")
-                            .replace("P1", this.getInitiativePlayer().name + "(P1)阵营")
-                            .replace("P2阵营", this.getPassivePlayer().name + "(P2)阵营")
-                            .replace("P2", this.getPassivePlayer().name + "(P2)阵营")
-                        ));
-                    }
-                }
+            const delta = chunk.choices[0]?.delta?.content;
+            if (delta) {
+                this.server.broadcast(new SimulationStreamEvent(
+                    delta
+                        .replace("P1阵营", this.getInitiativePlayer().name + "(P1)阵营")
+                        .replace("P1", this.getInitiativePlayer().name + "(P1)阵营")
+                        .replace("P2阵营", this.getPassivePlayer().name + "(P2)阵营")
+                        .replace("P2", this.getPassivePlayer().name + "(P2)阵营")
+                ));
             }
         }
 
