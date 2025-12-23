@@ -39,23 +39,39 @@ export class GeminiProvider extends GenerationProvider {
 
 export class OpenAIProvider extends GenerationProvider {
     private ai: OpenAI;
+    private useChatCompletions: boolean;
 
-    constructor(config: { baseUrl: string, apiKey: string, model: string }) {
+    constructor(config: { baseUrl: string, apiKey: string, model: string, useChatCompletions: boolean }) {
         super(config);
 
+        this.useChatCompletions = config.useChatCompletions;
         this.ai = new OpenAI({ baseURL: config.baseUrl, apiKey: config.apiKey });
     }
 
     async *generateStream(prompt: string): AsyncIterable<string> {
-        const stream = await this.ai.responses.create({
-            model: this.model,
-            input: [ { role: "user", content: prompt } ],
-            stream: true
-        });
+        if (this.useChatCompletions) {
+            const stream = await this.ai.chat.completions.create({
+                model: this.model,
+                messages: [{role: "user", content: prompt}],
+                stream: true
+            })
 
-        for await (const event of stream) {
-            if (event.type === "response.output_text.delta") {
-                yield event.delta;
+            for await (const chunk of stream) {
+                if (chunk.choices[0] && chunk.choices[0].delta.content) {
+                    yield chunk.choices[0].delta.content;
+                }
+            }
+        } else {
+            const stream = await this.ai.responses.create({
+                model: this.model,
+                input: [ { role: "user", content: prompt } ],
+                stream: true
+            });
+
+            for await (const event of stream) {
+                if (event.type === "response.output_text.delta") {
+                    yield event.delta;
+                }
             }
         }
     }

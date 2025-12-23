@@ -9,6 +9,7 @@
   "generation": {
     "provider": "gemini",
     "baseUrl": "https://api.openai.com/v1/chat/completions",
+    "useChatCompletions": false,
     "apiKey": "YOUR_API_KEY",
     "model": "gemini-3-flash-preview"
   },
