@@ -35,7 +35,8 @@ export interface ServerState {
     getOnlinePlayers: () => number,
     phase: number,
     requirePassword: boolean,
-    tls: boolean
+    tls: boolean,
+    model: string
 }
 
 const PHASE_LOBBY = 0
@@ -75,6 +76,7 @@ export class Server {
             phase: PHASE_LOBBY,
             requirePassword: !!config.password,
             tls: config.tls,
+            model: config.generation.model
         };
 
         this.actionHandlers = {
