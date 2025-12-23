@@ -123,13 +123,19 @@ export class ReadyHandler extends PlayerActionHandler {
 
 export class HoverHandler extends PlayerActionHandler {
     execute(player: Player, data: ClientMessage) {
-        player.getOtherPlayer().send(new OpponentHoverEvent(data.hovering));
+        const opponent = player.getOtherPlayer();
+        if (opponent) {
+            opponent.send(new OpponentHoverEvent(data.hovering));
+        }
     }
 }
 
 export class UnhoverHandler extends PlayerActionHandler {
     execute(player: Player) {
-        player.getOtherPlayer().send(new OpponentUnhoverEvent());
+        const opponent = player.getOtherPlayer();
+        if (opponent) {
+            opponent.send(new OpponentUnhoverEvent());
+        }
     }
 }
 
