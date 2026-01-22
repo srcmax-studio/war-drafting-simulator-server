@@ -8,7 +8,7 @@
   "certificate": "/path/to/fullchain.pem",
   "generation": {
     "provider": "gemini",
-    "baseUrl": "https://api.openai.com/v1/chat/completions",
+    "baseUrl": "https://api.openai.com/v1",
     "useChatCompletions": false,
     "apiKey": "YOUR_API_KEY",
     "model": "gemini-3-flash-preview"
