@@ -114,7 +114,24 @@ const connect = async (url: string): Promise<TestClient> => {
 
 const join = async (client: TestClient, name: string, reconnectToken?: string): Promise<Message> => {
   const requestId = client.send({ action: 'join', name, ...(reconnectToken ? { reconnectToken } : {}) });
-  return client.waitFor(reconnectToken ? 'reconnected' : 'joined', (message) => message.requestId === requestId);
+  const joined = await client.waitFor(reconnectToken ? 'reconnected' : 'joined', (message) => message.requestId === requestId);
+  if (!reconnectToken) {
+    const lobbyRequest = client.send({ action: 'enterLobby' });
+    await client.waitFor('lobbyEntered', (message) => message.requestId === lobbyRequest);
+  }
+  return joined;
+};
+
+const openRoom = async (host: TestClient, guest: TestClient, turnDurationMs = 45_000): Promise<string> => {
+  const requestId = host.send({
+    action: 'createRoom',
+    room: { name: '集成测试房', visibility: 'public', allowSpectators: false, turnDurationMs, packIds: ['core'], tags: ['标准'], revealDecks: false }
+  });
+  const created = await host.waitFor('roomCreated', (message) => message.requestId === requestId);
+  const roomId = created.payload.roomId as string;
+  const joinRequest = guest.send({ action: 'joinRoom', roomId });
+  await guest.waitFor('roomJoined', (message) => message.requestId === joinRequest);
+  return roomId;
 };
 
 const makePlan = (view: any, playerId: string): any => {
@@ -146,22 +163,25 @@ describe('authoritative WebSocket integration', () => {
     const { server, url } = await startServer();
     const first = await connect(url);
     const second = await connect(url);
-    await join(first, '甲');
-    await join(second, '乙');
-    first.send({ action: 'selectDeck', ...deckPayload(0) });
-    second.send({ action: 'selectDeck', ...deckPayload(1) });
-    first.send({ action: 'ready' });
-    second.send({ action: 'ready' });
+    const firstJoined = await join(first, '甲');
+    const secondJoined = await join(second, '乙');
+    const firstId = firstJoined.payload.playerId as string;
+    const secondId = secondJoined.payload.playerId as string;
+    const roomId = await openRoom(first, second);
+    first.send({ action: 'selectDeck', roomId, ...deckPayload(0) });
+    second.send({ action: 'selectDeck', roomId, ...deckPayload(1) });
+    first.send({ action: 'setReady', roomId, ready: true });
+    second.send({ action: 'setReady', roomId, ready: true });
     let firstState = (await first.waitFor('privateGameState', (message) => message.payload.turn === 1)).payload;
     let secondState = (await second.waitFor('privateGameState', (message) => message.payload.turn === 1)).payload;
-    expect(firstState.players.find((player: any) => player.playerId === 'player-1').hand).toHaveLength(4);
-    expect(firstState.players.find((player: any) => player.playerId === 'player-2').hand).toBeUndefined();
+    expect(firstState.players.find((player: any) => player.playerId === firstId).hand).toHaveLength(4);
+    expect(firstState.players.find((player: any) => player.playerId === secondId).hand).toBeUndefined();
     expect(firstState.fronts.filter((front: any) => !front.revealed).every((front: any) => front.definition.effectId === 'hidden' && front.definition.frontId.startsWith('front-slot-'))).toBe(true);
     for (let turn = 1; turn <= 6; turn += 1) {
-      first.send({ action: 'submitTurn', intent: makePlan(firstState, 'player-1') });
-      second.send({ action: 'submitTurn', intent: makePlan(secondState, 'player-2') });
-      first.send({ action: 'lockTurn', turn });
-      second.send({ action: 'lockTurn', turn });
+      first.send({ action: 'submitTurn', gameId: firstState.gameId, intent: makePlan(firstState, firstId) });
+      second.send({ action: 'submitTurn', gameId: secondState.gameId, intent: makePlan(secondState, secondId) });
+      first.send({ action: 'lockTurn', gameId: firstState.gameId, turn });
+      second.send({ action: 'lockTurn', gameId: secondState.gameId, turn });
       firstState = (await first.waitFor('privateGameState', (message) => message.payload.phase === 'ended' || message.payload.turn > turn)).payload;
       secondState = (await second.waitFor('privateGameState', (message) => message.payload.phase === 'ended' || message.payload.turn > turn)).payload;
     }
@@ -180,20 +200,22 @@ describe('authoritative WebSocket integration', () => {
     const second = await connect(url);
     const joined = await join(first, '甲');
     const token = joined.payload.reconnectToken as string;
+    const playerId = joined.payload.playerId as string;
     await join(second, '乙');
-    first.send({ action: 'selectDeck', ...deckPayload(0) });
-    second.send({ action: 'selectDeck', ...deckPayload(1) });
-    first.send({ action: 'ready' });
-    second.send({ action: 'ready' });
+    const roomId = await openRoom(first, second);
+    first.send({ action: 'selectDeck', roomId, ...deckPayload(0) });
+    second.send({ action: 'selectDeck', roomId, ...deckPayload(1) });
+    first.send({ action: 'setReady', roomId, ready: true });
+    second.send({ action: 'setReady', roomId, ready: true });
     const before = await first.waitFor('privateGameState', (message) => message.payload.turn === 1);
     await first.close();
-    await second.waitFor('roomState', (message) => message.payload.players.some((player: any) => player.playerId === 'player-1' && !player.connected));
+    await second.waitFor('roomState', (message) => message.payload.members.some((player: any) => player.playerId === playerId && !player.connected));
     const reconnected = await connect(url);
     await join(reconnected, '甲', token);
     const restored = await reconnected.waitFor('privateGameState');
     expect(restored.payload.gameId).toBe(before.payload.gameId);
     expect(restored.payload.turn).toBe(before.payload.turn);
-    expect(restored.payload.players.find((player: any) => player.playerId === 'player-1').hand).toEqual(before.payload.players.find((player: any) => player.playerId === 'player-1').hand);
+    expect(restored.payload.players.find((player: any) => player.playerId === playerId).hand).toEqual(before.payload.players.find((player: any) => player.playerId === playerId).hand);
   });
 
   it('practice AI completes a legal match and the event log replays identically', async () => {
@@ -242,10 +264,11 @@ describe('authoritative WebSocket integration', () => {
     const second = await connect(url);
     await join(first, '甲');
     await join(second, '乙');
-    first.send({ action: 'selectDeck', ...deckPayload(0) });
-    second.send({ action: 'selectDeck', ...deckPayload(1) });
-    first.send({ action: 'ready' });
-    second.send({ action: 'ready' });
+    const roomId = await openRoom(first, second, 1_000);
+    first.send({ action: 'selectDeck', roomId, ...deckPayload(0) });
+    second.send({ action: 'selectDeck', roomId, ...deckPayload(1) });
+    first.send({ action: 'setReady', roomId, ready: true });
+    second.send({ action: 'setReady', roomId, ready: true });
     await first.waitFor('privateGameState', (message) => message.payload.turn === 1);
     const next = await first.waitFor('privateGameState', (message) => message.payload.turn === 2, 2_500);
     expect(next.payload.eventLog).toBeUndefined();
@@ -256,19 +279,20 @@ describe('authoritative WebSocket integration', () => {
     const { server, url } = await startServer();
     const first = await connect(url);
     const second = await connect(url);
-    await join(first, '甲');
+    const firstJoined = await join(first, '甲');
     await join(second, '乙');
-    first.send({ action: 'selectDeck', ...deckPayload(0) });
-    second.send({ action: 'selectDeck', ...deckPayload(1) });
-    first.send({ action: 'ready' });
-    second.send({ action: 'ready' });
+    const roomId = await openRoom(first, second);
+    first.send({ action: 'selectDeck', roomId, ...deckPayload(0) });
+    second.send({ action: 'selectDeck', roomId, ...deckPayload(1) });
+    first.send({ action: 'setReady', roomId, ready: true });
+    second.send({ action: 'setReady', roomId, ready: true });
     await first.waitFor('privateGameState', (message) => message.payload.turn === 1);
     first.send({ action: 'raiseBanner', turn: 1 });
     await second.waitFor('bannerRaised');
     second.send({ action: 'withdraw', turn: 1 });
     const ended = await first.waitFor('gameEnded');
-    expect(ended.payload.winner.winnerId).toBe('player-1');
-    expect(ended.payload.winner.stake).toBe(1);
+    expect(ended.payload.summary.winner.winnerId).toBe(firstJoined.payload.playerId);
+    expect(ended.payload.summary.winner.stake).toBe(1);
     expect(server.getGameForTesting()?.stake.pending).toBe(2);
   });
 });

@@ -12,6 +12,21 @@ export interface ServerConfig {
   password: string;
   turnDurationMs: number;
   reconnectWindowMs: number;
+  idleConnectionMs: number;
+  roomIdleMs: number;
+  matchmakingConfirmMs: number;
+  maxConnections: number;
+  maxRooms: number;
+  maxActiveGames: number;
+  maxMessageBytes: number;
+  maxBackpressureBytes: number;
+  messagesPerSecond: number;
+  messageBurst: number;
+  chatIntervalMs: number;
+  roomCreateIntervalMs: number;
+  nodeId: string;
+  metricsEnabled: boolean;
+  metricsToken: string;
   publishServer: boolean;
   publishEndpoint: string;
   publishAddress: string;
@@ -34,6 +49,21 @@ export const DEFAULT_CONFIG: ServerConfig = {
   password: '',
   turnDurationMs: 45_000,
   reconnectWindowMs: 60_000,
+  idleConnectionMs: 120_000,
+  roomIdleMs: 30 * 60_000,
+  matchmakingConfirmMs: 20_000,
+  maxConnections: 250,
+  maxRooms: 100,
+  maxActiveGames: 50,
+  maxMessageBytes: 64 * 1024,
+  maxBackpressureBytes: 1024 * 1024,
+  messagesPerSecond: 20,
+  messageBurst: 60,
+  chatIntervalMs: 750,
+  roomCreateIntervalMs: 3_000,
+  nodeId: process.env.AEONFRONT_NODE_ID ?? 'local-1',
+  metricsEnabled: true,
+  metricsToken: '',
   publishServer: false,
   publishEndpoint: '',
   publishAddress: '',
@@ -53,6 +83,21 @@ export function normalizeConfig(input: Record<string, unknown>): ServerConfig {
     password: typeof input.password === 'string' ? input.password : '',
     turnDurationMs: typeof input.turnDurationMs === 'number' ? input.turnDurationMs : DEFAULT_CONFIG.turnDurationMs,
     reconnectWindowMs: typeof input.reconnectWindowMs === 'number' ? input.reconnectWindowMs : DEFAULT_CONFIG.reconnectWindowMs,
+    idleConnectionMs: typeof input.idleConnectionMs === 'number' ? input.idleConnectionMs : DEFAULT_CONFIG.idleConnectionMs,
+    roomIdleMs: typeof input.roomIdleMs === 'number' ? input.roomIdleMs : DEFAULT_CONFIG.roomIdleMs,
+    matchmakingConfirmMs: typeof input.matchmakingConfirmMs === 'number' ? input.matchmakingConfirmMs : DEFAULT_CONFIG.matchmakingConfirmMs,
+    maxConnections: typeof input.maxConnections === 'number' ? input.maxConnections : DEFAULT_CONFIG.maxConnections,
+    maxRooms: typeof input.maxRooms === 'number' ? input.maxRooms : DEFAULT_CONFIG.maxRooms,
+    maxActiveGames: typeof input.maxActiveGames === 'number' ? input.maxActiveGames : DEFAULT_CONFIG.maxActiveGames,
+    maxMessageBytes: typeof input.maxMessageBytes === 'number' ? input.maxMessageBytes : DEFAULT_CONFIG.maxMessageBytes,
+    maxBackpressureBytes: typeof input.maxBackpressureBytes === 'number' ? input.maxBackpressureBytes : DEFAULT_CONFIG.maxBackpressureBytes,
+    messagesPerSecond: typeof input.messagesPerSecond === 'number' ? input.messagesPerSecond : DEFAULT_CONFIG.messagesPerSecond,
+    messageBurst: typeof input.messageBurst === 'number' ? input.messageBurst : DEFAULT_CONFIG.messageBurst,
+    chatIntervalMs: typeof input.chatIntervalMs === 'number' ? input.chatIntervalMs : DEFAULT_CONFIG.chatIntervalMs,
+    roomCreateIntervalMs: typeof input.roomCreateIntervalMs === 'number' ? input.roomCreateIntervalMs : DEFAULT_CONFIG.roomCreateIntervalMs,
+    nodeId: typeof input.nodeId === 'string' ? input.nodeId : DEFAULT_CONFIG.nodeId,
+    metricsEnabled: input.metricsEnabled !== false,
+    metricsToken: typeof input.metricsToken === 'string' ? input.metricsToken : '',
     publishServer: input.publishServer === true,
     publishEndpoint: typeof input.publishEndpoint === 'string' ? input.publishEndpoint : '',
     publishAddress: typeof input.publishAddress === 'string' ? input.publishAddress : '',
@@ -69,6 +114,8 @@ export function normalizeConfig(input: Record<string, unknown>): ServerConfig {
   if (typeof input.certificate === 'string') config.certificate = input.certificate;
   if (!Number.isInteger(config.port) || config.port < 0 || config.port > 65_535) throw new Error('Invalid server port.');
   if (config.turnDurationMs < 1_000) throw new Error('turnDurationMs must be at least 1000.');
+  if (config.reconnectWindowMs < 1_000 || config.idleConnectionMs < 10_000 || config.roomIdleMs < 10_000) throw new Error('Lifecycle timeouts are below the supported minimum.');
+  if (![config.maxConnections, config.maxRooms, config.maxActiveGames, config.maxMessageBytes, config.maxBackpressureBytes, config.messagesPerSecond, config.messageBurst].every((value) => Number.isInteger(value) && value > 0)) throw new Error('Server limits must be positive integers.');
   if (config.tls && (!config.privateKey || !config.certificate)) throw new Error('TLS requires privateKey and certificate paths.');
   return config;
 }
