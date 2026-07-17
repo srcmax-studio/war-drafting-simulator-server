@@ -16,16 +16,16 @@ import {
   raiseBanner,
   submitTurnIntent,
   undoTurnIntent,
-  validateDeck,
   withdraw,
   type CardDefinition,
   type ClientAction,
   type GameState,
   type PlayerView,
+  type SubmittedDeck,
   type ValidationResult
 } from './common/src/index.js';
 import { choosePracticeIntent, choosePracticeRisk } from './ai.js';
-import type { Catalog } from './catalog.js';
+import { sanitizeSubmittedDeck, validateSubmittedDeck, type Catalog, type DeckSubmissionEnvelope } from './catalog.js';
 import type { ServerConfig } from './config.js';
 import { Logger } from './utils.js';
 
@@ -44,7 +44,7 @@ interface PlayerRecord {
   name: string;
   reconnectToken: string;
   connection: Connection | null;
-  selectedDeck: string[] | null;
+  selectedDeck: SubmittedDeck | null;
   ready: boolean;
   rematch: boolean;
   reconnectTimer: NodeJS.Timeout | null;
@@ -80,6 +80,8 @@ export class AeonfrontServer {
     public readonly catalog: Catalog
   ) {
     this.cardCatalog = Object.fromEntries(catalog.cards.map((card) => [card.cardId, card]));
+    const activeFronts = new Set(catalog.packs.filter((pack) => ['preview', 'released'].includes(pack.releaseStatus)).flatMap((pack) => pack.fronts));
+    if (FRONT_DEFINITIONS.some((front) => front.enabled && !activeFronts.has(front.frontId))) throw new Error('An enabled front is missing from active content packs.');
     const requestListener: RequestListener = (request, response) => {
       if (request.url === '/health') {
         response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
@@ -137,7 +139,9 @@ export class AeonfrontServer {
       onlinePlayers: [...this.players.values()].filter((player) => player.connection).length,
       loadedCards: this.catalog.cards.length,
       enabledFronts: FRONT_DEFINITIONS.filter((front) => front.enabled).length,
-      cardDataVersion: this.catalog.cardVersion,
+      catalogVersion: this.catalog.catalogVersion,
+      cardDataVersion: this.catalog.catalogVersion,
+      packVersions: this.catalog.packVersions,
       assetDataVersion: this.catalog.assetVersion,
       generationEnabled: this.config.generation.enabled
     };
@@ -203,13 +207,13 @@ export class AeonfrontServer {
         this.join(connection, action.name, action.reconnectToken, action.requestId);
         break;
       case 'selectDeck':
-        this.selectDeck(connection, action.cardIds, action.requestId);
+        this.selectDeck(connection, action, action.requestId);
         break;
       case 'ready':
         this.ready(connection, action.requestId);
         break;
       case 'practice':
-        this.startPractice(connection, action.cardIds, action.requestId);
+        this.startPractice(connection, action, action.requestId);
         break;
       case 'submitTurn':
         this.requireGamePlayer(connection);
@@ -301,17 +305,22 @@ export class AeonfrontServer {
     this.players.set(playerId, player);
     connection.playerId = playerId;
     this.send(connection, 'joined', { playerId, name, reconnectToken: player.reconnectToken }, requestId);
-    this.send(connection, 'cardDataVersion', { version: this.catalog.cardVersion, cards: this.catalog.cards.length });
+    this.send(connection, 'cardDataVersion', { version: this.catalog.catalogVersion, schemaVersion: 2, cards: this.catalog.cards.length, packVersions: this.catalog.packVersions });
     this.send(connection, 'assetDataVersion', { version: this.catalog.assetVersion });
     this.sendRoomState();
   }
 
-  private selectDeck(connection: Connection, cardIds: string[], requestId: string): void {
+  private submittedDeck(action: DeckSubmissionEnvelope): SubmittedDeck {
+    const result = validateSubmittedDeck(action, this.catalog);
+    this.assertResult(result);
+    return sanitizeSubmittedDeck(action, this.catalog);
+  }
+
+  private selectDeck(connection: Connection, action: Extract<ClientAction, { action: 'selectDeck' }>, requestId: string): void {
     const player = this.requirePlayer(connection);
-    this.assertResult(validateDeck(cardIds, this.cardCatalog));
-    player.selectedDeck = [...cardIds];
+    player.selectedDeck = this.submittedDeck(action);
     player.ready = false;
-    this.send(connection, 'deckSelected', { cards: cardIds.length }, requestId);
+    this.send(connection, 'deckSelected', { deckId: player.selectedDeck.deckId, name: player.selectedDeck.name, cards: player.selectedDeck.cardIds.length, catalogVersion: player.selectedDeck.catalogVersion }, requestId);
     this.sendRoomState();
   }
 
@@ -337,7 +346,9 @@ export class AeonfrontServer {
       seed,
       cards: this.catalog.cards,
       fronts: FRONT_DEFINITIONS,
-      players: players.map((player) => ({ playerId: player.playerId, name: player.name, deck: [...player.selectedDeck!] }))
+      catalogVersion: this.catalog.catalogVersion,
+      packVersions: this.catalog.packVersions,
+      players: players.map((player) => ({ playerId: player.playerId, name: player.name, deck: [...player.selectedDeck!.cardIds], deckId: player.selectedDeck!.deckId, deckName: player.selectedDeck!.name }))
     });
     for (const player of players) {
       player.ready = false;
@@ -348,24 +359,26 @@ export class AeonfrontServer {
     this.broadcastGameState();
   }
 
-  private startPractice(connection: Connection, cardIds: string[], requestId: string): void {
+  private startPractice(connection: Connection, action: Extract<ClientAction, { action: 'practice' }>, requestId: string): void {
     const human = this.requirePlayer(connection);
-    this.assertResult(validateDeck(cardIds, this.cardCatalog));
+    const deck = this.submittedDeck(action);
     if (this.players.size > 1) throw new RuleError('ROOM_NOT_EMPTY', 'Practice mode requires an empty second seat.');
     const aiDeck = this.catalog.presets[1]?.cardIds ?? this.catalog.presets[0]?.cardIds;
     if (!aiDeck) throw new RuleError('PRESET_MISSING', 'No practice deck is available.');
     const seed = this.nextSeed();
     this.mode = 'practice';
     this.aiPlayerId = 'practice-ai';
-    human.selectedDeck = [...cardIds];
+    human.selectedDeck = deck;
     this.game = createGame({
       gameId: `practice-${seed}`,
       seed,
       cards: this.catalog.cards,
       fronts: FRONT_DEFINITIONS,
+      catalogVersion: this.catalog.catalogVersion,
+      packVersions: this.catalog.packVersions,
       players: [
-        { playerId: human.playerId, name: human.name, deck: [...cardIds] },
-        { playerId: this.aiPlayerId, name: '演武官', deck: [...aiDeck] }
+        { playerId: human.playerId, name: human.name, deck: [...deck.cardIds], deckId: deck.deckId, deckName: deck.name },
+        { playerId: this.aiPlayerId, name: '演武官', deck: [...aiDeck], deckId: this.catalog.presets[1]?.deckId ?? 'practice-ai', deckName: this.catalog.presets[1]?.nameZh ?? '演武牌组' }
       ]
     });
     this.send(connection, 'practiceStarted', { gameId: this.game.gameId }, requestId);
@@ -380,7 +393,7 @@ export class AeonfrontServer {
     player.rematch = true;
     this.send(connection, 'rematchRequested', { playerId: player.playerId }, requestId);
     if (this.mode === 'practice' && player.selectedDeck) {
-      this.startPractice(connection, player.selectedDeck, `${requestId}:start`);
+      this.startPractice(connection, { action: 'practice', protocolVersion: PROTOCOL_VERSION, requestId: `${requestId}:start`, cardIds: player.selectedDeck.cardIds, catalogVersion: player.selectedDeck.catalogVersion, deck: player.selectedDeck }, `${requestId}:start`);
     } else if (this.mode === 'online' && [...this.players.values()].every((candidate) => candidate.rematch)) {
       this.startOnlineGame();
     } else {
@@ -467,6 +480,8 @@ export class AeonfrontServer {
         connected: Boolean(player.connection),
         ready: player.ready,
         deckSelected: Boolean(player.selectedDeck),
+        deckId: player.selectedDeck?.deckId ?? null,
+        deckName: player.selectedDeck?.name ?? null,
         rematch: player.rematch
       }))
     };

@@ -20,4 +20,5 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      - run: npm run simulate:balance:quick
       - run: npm run build

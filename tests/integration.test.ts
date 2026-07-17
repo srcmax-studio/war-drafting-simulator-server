@@ -1,7 +1,7 @@
 import { once } from 'node:events';
 import { afterEach, describe, expect, it } from 'vitest';
 import WebSocket from 'ws';
-import { PROTOCOL_VERSION, verifyReplay } from '../src/common/src/index.js';
+import { DECK_SCHEMA_VERSION, PROTOCOL_VERSION, verifyReplay } from '../src/common/src/index.js';
 import { loadCatalog, type Catalog } from '../src/catalog.js';
 import { DEFAULT_CONFIG, type ServerConfig } from '../src/config.js';
 import { AeonfrontServer } from '../src/server.js';
@@ -72,6 +72,23 @@ class TestClient {
 }
 
 const catalog: Catalog = loadCatalog();
+const deckPayload = (index: number, overrides: Record<string, unknown> = {}) => {
+  const preset = catalog.presets[index]!;
+  const cardIds = [...preset.cardIds];
+  return {
+    cardIds,
+    catalogVersion: catalog.catalogVersion,
+    deck: {
+      schemaVersion: DECK_SCHEMA_VERSION,
+      deckId: preset.deckId,
+      name: preset.nameZh,
+      cardIds,
+      catalogVersion: catalog.catalogVersion,
+      packVersions: { ...catalog.packVersions }
+    },
+    ...overrides
+  };
+};
 const servers: AeonfrontServer[] = [];
 const clients: TestClient[] = [];
 
@@ -131,14 +148,15 @@ describe('authoritative WebSocket integration', () => {
     const second = await connect(url);
     await join(first, '甲');
     await join(second, '乙');
-    first.send({ action: 'selectDeck', cardIds: catalog.presets[0]!.cardIds });
-    second.send({ action: 'selectDeck', cardIds: catalog.presets[1]!.cardIds });
+    first.send({ action: 'selectDeck', ...deckPayload(0) });
+    second.send({ action: 'selectDeck', ...deckPayload(1) });
     first.send({ action: 'ready' });
     second.send({ action: 'ready' });
     let firstState = (await first.waitFor('privateGameState', (message) => message.payload.turn === 1)).payload;
     let secondState = (await second.waitFor('privateGameState', (message) => message.payload.turn === 1)).payload;
     expect(firstState.players.find((player: any) => player.playerId === 'player-1').hand).toHaveLength(4);
     expect(firstState.players.find((player: any) => player.playerId === 'player-2').hand).toBeUndefined();
+    expect(firstState.fronts.filter((front: any) => !front.revealed).every((front: any) => front.definition.effectId === 'hidden' && front.definition.frontId.startsWith('front-slot-'))).toBe(true);
     for (let turn = 1; turn <= 6; turn += 1) {
       first.send({ action: 'submitTurn', intent: makePlan(firstState, 'player-1') });
       second.send({ action: 'submitTurn', intent: makePlan(secondState, 'player-2') });
@@ -152,6 +170,8 @@ describe('authoritative WebSocket integration', () => {
     expect(firstState.winner).toBeTruthy();
     expect(server.getGameForTesting()?.players.flatMap((player) => Object.values(player.fronts).flat()).length).toBeGreaterThan(0);
     expect(server.getGameForTesting()?.eventLog.some((event) => event.type === 'reveal_order')).toBe(true);
+    expect(server.getGameForTesting()?.setup.catalogVersion).toBe(catalog.catalogVersion);
+    expect(server.getGameForTesting()?.setup.players[0]?.deckId).toBe(catalog.presets[0]!.deckId);
   });
 
   it('restores the same private game after reconnect', async () => {
@@ -161,8 +181,8 @@ describe('authoritative WebSocket integration', () => {
     const joined = await join(first, '甲');
     const token = joined.payload.reconnectToken as string;
     await join(second, '乙');
-    first.send({ action: 'selectDeck', cardIds: catalog.presets[0]!.cardIds });
-    second.send({ action: 'selectDeck', cardIds: catalog.presets[1]!.cardIds });
+    first.send({ action: 'selectDeck', ...deckPayload(0) });
+    second.send({ action: 'selectDeck', ...deckPayload(1) });
     first.send({ action: 'ready' });
     second.send({ action: 'ready' });
     const before = await first.waitFor('privateGameState', (message) => message.payload.turn === 1);
@@ -180,7 +200,7 @@ describe('authoritative WebSocket integration', () => {
     const { server, url } = await startServer();
     const human = await connect(url);
     await join(human, '演武者');
-    human.send({ action: 'practice', cardIds: catalog.presets[0]!.cardIds });
+    human.send({ action: 'practice', ...deckPayload(0) });
     let view = (await human.waitFor('privateGameState')).payload;
     while (view.phase !== 'ended') {
       const turn = view.turn as number;
@@ -201,14 +221,29 @@ describe('authoritative WebSocket integration', () => {
     expect(error.payload.code).toBe('PROTOCOL_MISMATCH');
   });
 
+  it('rejects stale or unversioned deck submissions with structured errors', async () => {
+    const { url } = await startServer();
+    const client = await connect(url);
+    await join(client, '校验者');
+    const missingRequest = client.send({ action: 'selectDeck', cardIds: catalog.presets[0]!.cardIds });
+    const missing = await client.waitFor('error', (message) => message.requestId === missingRequest);
+    expect(missing.payload.code).toBe('DECK_PAYLOAD_REQUIRED');
+    const stale = deckPayload(0);
+    stale.catalogVersion = 'CORE-1-stale';
+    stale.deck.catalogVersion = 'CORE-1-stale';
+    const staleRequest = client.send({ action: 'selectDeck', ...stale });
+    const staleError = await client.waitFor('error', (message) => message.requestId === staleRequest);
+    expect(staleError.payload.code).toBe('CATALOG_VERSION_MISMATCH');
+  });
+
   it('authoritatively locks both players when the turn deadline expires', async () => {
     const { url } = await startServer({ turnDurationMs: 1_000 });
     const first = await connect(url);
     const second = await connect(url);
     await join(first, '甲');
     await join(second, '乙');
-    first.send({ action: 'selectDeck', cardIds: catalog.presets[0]!.cardIds });
-    second.send({ action: 'selectDeck', cardIds: catalog.presets[1]!.cardIds });
+    first.send({ action: 'selectDeck', ...deckPayload(0) });
+    second.send({ action: 'selectDeck', ...deckPayload(1) });
     first.send({ action: 'ready' });
     second.send({ action: 'ready' });
     await first.waitFor('privateGameState', (message) => message.payload.turn === 1);
@@ -223,8 +258,8 @@ describe('authoritative WebSocket integration', () => {
     const second = await connect(url);
     await join(first, '甲');
     await join(second, '乙');
-    first.send({ action: 'selectDeck', cardIds: catalog.presets[0]!.cardIds });
-    second.send({ action: 'selectDeck', cardIds: catalog.presets[1]!.cardIds });
+    first.send({ action: 'selectDeck', ...deckPayload(0) });
+    second.send({ action: 'selectDeck', ...deckPayload(1) });
     first.send({ action: 'ready' });
     second.send({ action: 'ready' });
     await first.waitFor('privateGameState', (message) => message.payload.turn === 1);

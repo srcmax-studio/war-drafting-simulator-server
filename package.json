@@ -1,6 +1,6 @@
 {
   "name": "@srcmax/aeonfront-server",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Authoritative WebSocket match server for Aeonfront.",
   "type": "module",
   "main": "dist/main.js",
@@ -8,12 +8,18 @@
     "dev": "tsx src/main.ts",
     "start": "node dist/main.js",
     "build": "tsc -p tsconfig.build.json",
-    "lint": "eslint src tests",
+    "lint": "eslint src tests scripts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:integration": "vitest run tests/integration.test.ts",
     "test:replay": "vitest run -t replay",
-    "test:ai": "vitest run -t 'practice AI'"
+    "test:ai": "vitest run -t 'practice AI'",
+    "test:cards": "vitest run tests/card-smoke.test.ts",
+    "test:reconnect": "vitest run -t reconnect",
+    "simulate:balance:quick": "tsx scripts/simulate-balance.ts --mode=quick --games=500",
+    "simulate:balance:full": "tsx scripts/simulate-balance.ts --mode=full --games=50000",
+    "simulate:presets": "tsx scripts/simulate-balance.ts --mode=presets --games=6000",
+    "simulate:cost-curves": "tsx scripts/simulate-balance.ts --mode=cost-curves --games=6000"
   },
   "dependencies": {
     "ws": "^8.18.3"

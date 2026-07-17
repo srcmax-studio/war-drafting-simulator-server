@@ -12,6 +12,8 @@ The server accepts simultaneous turn plans over WebSocket, validates every card,
 - reconnect tokens with a configurable recovery window;
 - private views that hide opponent hands, deck order and unrevealed cards;
 - seeded practice AI that reads only its private view and public board information;
+- authoritative catalog, pack-version and custom-deck schema validation;
+- reproducible quick, preset, cost-curve and 50,000-game balance simulations;
 - HTTP `GET /health` on the same port as WebSocket;
 - optional TLS and public server-list publication;
 - optional post-game generation configuration, disabled by default and isolated from rules.
@@ -36,6 +38,8 @@ npm test
 npm run test:integration
 npm run test:replay
 npm run test:ai
+npm run test:cards
+npm run simulate:balance:quick
 npm run build
 ```
 
@@ -43,4 +47,4 @@ The integration suite drives two real WebSocket clients through a full six-turn 
 
 ## Protocol flow
 
-Connect, authenticate when required, join, select a legal twelve-card deck, ready, then exchange `submitTurn`, `undoTurn`, `lockTurn`, `raiseBanner`, `withdraw`, `requestSync`, `requestRematch`, `chatMessage` and `pong` actions. Every message uses `aeonfront/1`. See the client documentation for the full action and event tables.
+Connect, authenticate when required, join, submit a versioned legal twelve-card deck, ready, then exchange `submitTurn`, `undoTurn`, `lockTurn`, `raiseBanner`, `withdraw`, `requestSync`, `requestRematch`, `chatMessage` and `pong` actions. Every message uses `aeonfront/2`. Deck payloads include schema, catalog and pack versions; the server resolves all rules from canonical card IDs.
