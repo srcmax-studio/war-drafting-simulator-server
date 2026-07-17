@@ -322,7 +322,7 @@ export class AeonfrontServer {
     this.sessions.update(session);
     this.send(connection, 'roomCreated', state, { requestId, roomId: state.roomId });
     this.broadcastRoomState(state.roomId);
-    this.broadcastRoomList('roomCreated', state);
+    this.broadcastRoomList();
     this.broadcastPresence();
   }
 
@@ -332,7 +332,7 @@ export class AeonfrontServer {
     this.sessions.update(session);
     this.send(connection, 'roomJoined', state, { requestId, roomId });
     this.broadcastRoomState(roomId);
-    this.broadcastRoomList('roomUpdated', state);
+    this.broadcastRoomList();
     this.broadcastPresence();
   }
 
@@ -345,7 +345,7 @@ export class AeonfrontServer {
     if (result.removed) this.broadcastRoomRemoved(roomId);
     else if (result.state) {
       this.broadcastRoomState(roomId);
-      this.broadcastRoomList('roomUpdated', result.state);
+      this.broadcastRoomList();
     }
     this.sendLobbySnapshot(connection, session);
     this.broadcastPresence();
@@ -357,7 +357,7 @@ export class AeonfrontServer {
     const state = this.rooms.update(session, patch);
     this.send(connection, 'roomUpdated', state, { requestId, roomId });
     this.broadcastRoomState(roomId);
-    this.broadcastRoomList('roomUpdated', state);
+    this.broadcastRoomList();
   }
 
   private kickPlayer(connection: ManagedConnection, roomId: string, playerId: string, requestId: string): void {
@@ -373,7 +373,7 @@ export class AeonfrontServer {
     }
     this.send(connection, 'roomUpdated', result.state, { requestId, roomId });
     this.broadcastRoomState(roomId);
-    this.broadcastRoomList('roomUpdated', result.state);
+    this.broadcastRoomList();
     this.broadcastPresence();
   }
 
@@ -394,7 +394,7 @@ export class AeonfrontServer {
     const state = this.rooms.setReady(session, ready);
     this.send(connection, 'readyAccepted', { ready }, { requestId, roomId });
     this.broadcastRoomState(roomId);
-    this.broadcastRoomList('roomUpdated', state);
+    this.broadcastRoomList();
     if (state.status === 'ready') this.games.startRoom(roomId);
   }
 
@@ -425,7 +425,7 @@ export class AeonfrontServer {
     this.send(connection, 'matchmakingQueued', result.state, { requestId });
     if (result.found) {
       for (const player of result.found.players) this.sendSession(player, 'matchFound', { ...this.matchmaking.state(player.playerId), room: result.found.room }, { roomId: result.found.room.roomId });
-      this.broadcastRoomList('roomCreated', result.found.room);
+      this.broadcastRoomList();
       this.broadcastPresence();
     } else {
       this.broadcastMatchmakingUpdates();
@@ -687,9 +687,8 @@ export class AeonfrontServer {
     this.broadcastLobby('presenceUpdated', this.lobby.presence());
   }
 
-  private broadcastRoomList(event = 'roomListSnapshot', state?: { roomId: string }): void {
-    if (state && event !== 'roomListSnapshot') this.broadcastLobby(event, this.rooms.require(state.roomId).state());
-    else this.broadcastLobby('roomListSnapshot', this.rooms.list('', false, 0, 100));
+  private broadcastRoomList(): void {
+    this.broadcastLobby('roomListSnapshot', this.rooms.list('', false, 0, 100));
   }
 
   private broadcastRoomRemoved(roomId: string): void {

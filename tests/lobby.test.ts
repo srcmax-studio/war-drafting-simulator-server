@@ -25,6 +25,24 @@ describe('online lobby', () => {
     expect(serialized).not.toContain('password');
   });
 
+  it('broadcasts only public room summaries to players who remain in the lobby', async () => {
+    const host = await harness.connect('开房者');
+    const observer = await harness.connect('大厅观察者');
+    const roomId = await harness.createRoom(host.client, '公开演武房');
+    const snapshot = await observer.client.waitFor(
+      'roomListSnapshot',
+      (message) => message.payload.some((room: any) => room.roomId === roomId)
+    );
+    expect(snapshot.payload).toEqual([
+      expect.objectContaining({ roomId, name: '公开演武房', hostName: '开房者', players: 1 })
+    ]);
+    const serialized = JSON.stringify(snapshot.payload);
+    expect(serialized).not.toContain('members');
+    expect(serialized).not.toContain('cardIds');
+    expect(serialized).not.toContain('passwordHash');
+    await observer.client.expectNoEvent('roomCreated');
+  });
+
   it('broadcasts filtered lobby chat and rate limits rapid repeats', async () => {
     const first = await harness.connect('发言者');
     const second = await harness.connect('接收者');
