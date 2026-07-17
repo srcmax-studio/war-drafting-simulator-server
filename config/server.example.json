@@ -1,21 +1,23 @@
 {
-  "host": "0.0.0.0",
+  "host": "127.0.0.1",
   "port": 3001,
-  "title": "WDS Game",
+  "title": "万世战线 Aeonfront",
   "owner": "SrcMax Studio",
-  "tls": true,
-  "private-key": "/path/to/privkey.pem",
+  "tls": false,
+  "privateKey": "/path/to/privkey.pem",
   "certificate": "/path/to/fullchain.pem",
-  "generation": {
-    "provider": "gemini",
-    "baseUrl": "https://api.openai.com/v1",
-    "useChatCompletions": false,
-    "apiKey": "YOUR_API_KEY",
-    "model": "gemini-3-flash-preview"
-  },
-  "publish-server": true,
-  "publish-endpoint": "https://wds.srcmax.com/api/publish",
-  "publish-address": "public.wds.srcmax.com",
   "password": "",
-  "debug": false
+  "turnDurationMs": 45000,
+  "reconnectWindowMs": 60000,
+  "publishServer": false,
+  "publishEndpoint": "",
+  "publishAddress": "",
+  "debug": false,
+  "generation": {
+    "enabled": false,
+    "provider": "openai",
+    "baseUrl": "",
+    "apiKey": "",
+    "model": ""
+  }
 }

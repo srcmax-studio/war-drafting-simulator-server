@@ -1,338 +1,564 @@
-import { WebSocket, WebSocketServer } from "ws";
-import { Client, ClientMessage, Player } from "./client";
-import axios, { AxiosError } from "axios";
+import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { createServer as createHttpServer, type RequestListener, type Server as HttpServer } from 'node:http';
+import { createServer as createHttpsServer } from 'node:https';
+import type { AddressInfo } from 'node:net';
+import { WebSocket, WebSocketServer } from 'ws';
 import {
-    ActionHandler,
-    AuthenticateHandler,
-    CardSelectHandler,
-    ChatMessageHandler,
-    DecidePassiveDiscardHandler,
-    HoverHandler,
-    InitDiscardHandler,
-    JoinHandler,
-    PlayerActionHandler,
-    PongHandler,
-    ReadyHandler,
-    RequestCharactersHandler,
-    SelectHandler,
-    StatusHandler, SwapPositionAction,
-    UnhoverHandler
-} from "./action";
-import {
-    ServerEvent,
-    ErrorEvent,
-    EventError,
-    StatusEvent,
-    PlayerListEvent,
-    MessageEvent,
-    GameEndEvent, GamePausedEvent
-} from "./event";
-import fs from "fs";
-import * as https from "node:https";
-import { Logger } from "./utils";
-import { Game } from "./game";
+  FRONT_DEFINITIONS,
+  PROTOCOL_VERSION,
+  RuleError,
+  createGame,
+  createPlayerView,
+  createPublicView,
+  isClientAction,
+  lockTurn,
+  raiseBanner,
+  submitTurnIntent,
+  undoTurnIntent,
+  validateDeck,
+  withdraw,
+  type CardDefinition,
+  type ClientAction,
+  type GameState,
+  type PlayerView,
+  type ValidationResult
+} from './common/src/index.js';
+import { choosePracticeIntent, choosePracticeRisk } from './ai.js';
+import type { Catalog } from './catalog.js';
+import type { ServerConfig } from './config.js';
+import { Logger } from './utils.js';
 
-import { Character } from "./common/common";
-import { GeminiProvider, GenerationProvider, OpenAIProvider } from "./generation";
-
-export interface ServerState {
-    title: string,
-    owner: string,
-    loadedCharacters: number,
-    onlinePlayers: number,
-    getOnlinePlayers: () => number,
-    phase: number,
-    requirePassword: boolean,
-    tls: boolean,
-    model: string
+interface Connection {
+  id: string;
+  ws: WebSocket;
+  remoteName: string;
+  authenticated: boolean;
+  playerId: string | null;
+  lastPong: number;
+  processed: Set<string>;
 }
 
-const PHASE_LOBBY = 0
-const PHASE_DRAFT = 10
-const PHASE_SIMULATING = 20
+interface PlayerRecord {
+  playerId: string;
+  name: string;
+  reconnectToken: string;
+  connection: Connection | null;
+  selectedDeck: string[] | null;
+  ready: boolean;
+  rematch: boolean;
+  reconnectTimer: NodeJS.Timeout | null;
+}
 
-const HEARTBEAT_INTERVAL = 2000;
-const HEARTBEAT_TIMEOUT = 5000;
+interface OutboundMessage {
+  event: string;
+  protocolVersion: string;
+  sequence: number;
+  requestId?: string;
+  payload: unknown;
+}
 
-const RECONNECT_INTERVAL = 60000;
+const MAX_MESSAGE_BYTES = 64 * 1024;
 
-export class Server {
-    readonly config;
-    readonly characters: Set<Character>;
-    private serverState: ServerState;
-    clients: Map<WebSocket, Client> = new Map<WebSocket, Client>();
-    players: Map<WebSocket, Player> = new Map<WebSocket, Player>();
-    private readonly wss: WebSocketServer;
-    private actionHandlers: Record<string, ActionHandler | PlayerActionHandler>;
-    private static instance: Server;
-    private game: Game | null = null;
-    private generationProvider: GenerationProvider;
-    reconnectTimeout: NodeJS.Timeout | null = null;
-    disconnectedPlayer: Player | undefined;
+export class AeonfrontServer {
+  private readonly httpServer: HttpServer;
+  private readonly wss: WebSocketServer;
+  private readonly connections = new Set<Connection>();
+  private readonly players = new Map<string, PlayerRecord>();
+  private readonly cardCatalog: Record<string, CardDefinition>;
+  private heartbeat: NodeJS.Timeout | null = null;
+  private turnTimer: NodeJS.Timeout | null = null;
+  private transportSequence = 0;
+  private seedCounter = 1;
+  private mode: 'online' | 'practice' | null = null;
+  private aiPlayerId: string | null = null;
+  private game: GameState | null = null;
+  private deadline: number | null = null;
 
-    static getInstance(): Server {
-        return this.instance;
+  constructor(
+    public readonly config: ServerConfig,
+    public readonly catalog: Catalog
+  ) {
+    this.cardCatalog = Object.fromEntries(catalog.cards.map((card) => [card.cardId, card]));
+    const requestListener: RequestListener = (request, response) => {
+      if (request.url === '/health') {
+        response.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+        response.end(JSON.stringify(this.health()));
+        return;
+      }
+      response.writeHead(404, { 'content-type': 'application/json; charset=utf-8' });
+      response.end(JSON.stringify({ error: 'not_found' }));
+    };
+    this.httpServer = config.tls
+      ? createHttpsServer({ key: readFileSync(config.privateKey!), cert: readFileSync(config.certificate!) }, requestListener)
+      : createHttpServer(requestListener);
+    this.wss = new WebSocketServer({ server: this.httpServer, maxPayload: MAX_MESSAGE_BYTES });
+    this.wss.on('connection', (ws, request) => this.accept(ws, request.socket.remoteAddress ?? 'unknown'));
+  }
+
+  async listen(): Promise<AddressInfo> {
+    await new Promise<void>((resolve, reject) => {
+      this.httpServer.once('error', reject);
+      this.httpServer.listen(this.config.port, this.config.host, () => {
+        this.httpServer.off('error', reject);
+        resolve();
+      });
+    });
+    this.heartbeat = setInterval(() => this.runHeartbeat(), 2_000);
+    this.heartbeat.unref();
+    const address = this.httpServer.address();
+    if (!address || typeof address === 'string') throw new Error('Server did not expose a TCP address.');
+    Logger.info(`Aeonfront server listening on ${address.address}:${address.port}.`);
+    if (this.config.publishServer) void this.publish();
+    return address;
+  }
+
+  async close(): Promise<void> {
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    if (this.turnTimer) clearTimeout(this.turnTimer);
+    for (const player of this.players.values()) if (player.reconnectTimer) clearTimeout(player.reconnectTimer);
+    for (const connection of this.connections) connection.ws.terminate();
+    await new Promise<void>((resolve) => this.wss.close(() => resolve()));
+    if (this.httpServer.listening) await new Promise<void>((resolve, reject) => this.httpServer.close((error) => error ? reject(error) : resolve()));
+  }
+
+  address(): AddressInfo | null {
+    const address = this.httpServer.address();
+    return address && typeof address !== 'string' ? address : null;
+  }
+
+  health(): Record<string, unknown> {
+    return {
+      ok: true,
+      product: 'Aeonfront',
+      protocolVersion: PROTOCOL_VERSION,
+      phase: this.game?.phase ?? 'lobby',
+      turn: this.game?.turn ?? null,
+      onlinePlayers: [...this.players.values()].filter((player) => player.connection).length,
+      loadedCards: this.catalog.cards.length,
+      enabledFronts: FRONT_DEFINITIONS.filter((front) => front.enabled).length,
+      cardDataVersion: this.catalog.cardVersion,
+      assetDataVersion: this.catalog.assetVersion,
+      generationEnabled: this.config.generation.enabled
+    };
+  }
+
+  getGameForTesting(): GameState | null {
+    return this.game;
+  }
+
+  private accept(ws: WebSocket, remoteName: string): void {
+    const connection: Connection = {
+      id: randomUUID(),
+      ws,
+      remoteName,
+      authenticated: !this.config.password,
+      playerId: null,
+      lastPong: Date.now(),
+      processed: new Set()
+    };
+    this.connections.add(connection);
+    ws.on('message', (data) => this.receive(connection, data.toString()));
+    ws.on('close', () => this.disconnect(connection));
+    ws.on('error', (error) => Logger.warning(`WebSocket error from ${remoteName}: ${error.message}`));
+    this.send(connection, 'serverStatus', this.statusPayload());
+  }
+
+  private receive(connection: Connection, raw: string): void {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (!isClientAction(parsed)) throw new RuleError('INVALID_MESSAGE', 'Message does not match the action envelope.');
+      if (parsed.protocolVersion !== PROTOCOL_VERSION) {
+        throw new RuleError('PROTOCOL_MISMATCH', `Expected protocol ${PROTOCOL_VERSION}.`, { received: parsed.protocolVersion });
+      }
+      if (connection.processed.has(parsed.requestId)) {
+        this.send(connection, 'requestAccepted', { duplicate: true }, parsed.requestId);
+        this.sendPrivateState(connection);
+        return;
+      }
+      this.handle(connection, parsed);
+      connection.processed.add(parsed.requestId);
+    } catch (error) {
+      const ruleError = error instanceof RuleError ? error : new RuleError('INVALID_REQUEST', error instanceof Error ? error.message : 'Invalid request.');
+      let requestId: string | undefined;
+      try {
+        const candidate = JSON.parse(raw) as { requestId?: unknown };
+        if (typeof candidate.requestId === 'string') requestId = candidate.requestId;
+      } catch {
+        // The structured error below is sufficient for malformed JSON.
+      }
+      this.send(connection, 'error', { code: ruleError.code, message: ruleError.message, details: ruleError.details }, requestId);
     }
+  }
 
-    constructor(config: any, characters: Set<Character>) {
-        Server.instance = this;
-        this.config = config;
-        this.characters = characters;
-
-        this.serverState = {
-            title: config.title,
-            owner: config.owner,
-            loadedCharacters: characters.size,
-            onlinePlayers: 0,
-            getOnlinePlayers: () => { return this.players.size },
-            phase: PHASE_LOBBY,
-            requirePassword: !!config.password,
-            tls: config.tls,
-            model: config.generation.model
-        };
-
-        this.actionHandlers = {
-            status: new StatusHandler(this),
-            pong: new PongHandler(),
-            requestCharacters: new RequestCharactersHandler(this),
-            authenticate: new AuthenticateHandler(this),
-            join: new JoinHandler(this),
-            chatMessage: new ChatMessageHandler(this),
-            ready: new ReadyHandler(this),
-            hover: new HoverHandler(),
-            unhover: new UnhoverHandler(),
-            select: new SelectHandler(this),
-            decidePassiveDiscard: new DecidePassiveDiscardHandler(this),
-            cardSelect: new CardSelectHandler(this),
-            initDiscard: new InitDiscardHandler(this),
-            swapPosition: new SwapPositionAction(this)
-        };
-
-        Logger.info('Starting WebSocket server...');
-
-        let server;
-        let options: any = { host: config.host };
-        if (this.config.tls) {
-            server = https.createServer({
-                key: fs.readFileSync(this.config["private-key"]),
-                cert: fs.readFileSync(this.config["certificate"])
-            });
-            options = { ...options, server };
-        } else {
-            options = { ...options, port: config.port };
-            Logger.notice("TLS is NOT enabled. Clients will not be able to connect due to security features on modern browsers when using HTTPS.")
-        }
-
-        this.wss = new WebSocketServer(options);
-        this.setupWSServer();
-
-        if (this.config.tls) {
-            server?.listen(config.port);
-        }
-
-        this.setupHeartBeat();
-
-        Logger.info('Listening on ' + config.host + ":" + config.port + ".");
-        Logger.info('Registering generation provider ' + config.generation.provider);
-        this.generationProvider = config.generation.provider === 'gemini' ? new GeminiProvider(config.generation) : new OpenAIProvider(config.generation);
-
-        Logger.info('Server ready!');
-
-        if (this.config["publish-server"]) {
-            if (! this.config.tls) {
-                if (! this.config["force-publish"]) {
-                    Logger.notice("Server will not be published to server list because TLS is not enabled. Use 'force-publish' option to bypass this check.");
-                    return;
-                } else {
-                    Logger.notice("Publish TLS check bypassed. Note that clients will not be able to connect when using HTTPS.")
-                }
-            }
-            this.publish();
-        }
+  private handle(connection: Connection, action: ClientAction): void {
+    switch (action.action) {
+      case 'status':
+        this.send(connection, 'serverStatus', this.statusPayload(), action.requestId);
+        break;
+      case 'authenticate':
+        this.authenticate(connection, action.password, action.requestId);
+        break;
+      case 'join':
+        this.join(connection, action.name, action.reconnectToken, action.requestId);
+        break;
+      case 'selectDeck':
+        this.selectDeck(connection, action.cardIds, action.requestId);
+        break;
+      case 'ready':
+        this.ready(connection, action.requestId);
+        break;
+      case 'practice':
+        this.startPractice(connection, action.cardIds, action.requestId);
+        break;
+      case 'submitTurn':
+        this.requireGamePlayer(connection);
+        this.assertResult(submitTurnIntent(this.game!, connection.playerId!, { ...action.intent, requestId: this.ruleRequestId(connection, action.requestId) }));
+        this.send(connection, 'turnAccepted', { turn: this.game!.turn }, action.requestId);
+        this.afterGameAction();
+        break;
+      case 'undoTurn':
+        this.requireGamePlayer(connection);
+        this.assertResult(undoTurnIntent(this.game!, connection.playerId!, this.ruleRequestId(connection, action.requestId)));
+        this.send(connection, 'turnAccepted', { undone: true, turn: this.game!.turn }, action.requestId);
+        this.afterGameAction();
+        break;
+      case 'lockTurn':
+        this.requireGamePlayer(connection);
+        this.assertResult(lockTurn(this.game!, connection.playerId!, this.ruleRequestId(connection, action.requestId)));
+        this.send(connection, 'turnLocked', { turn: action.turn }, action.requestId);
+        this.afterGameAction();
+        break;
+      case 'raiseBanner':
+        this.requireGamePlayer(connection);
+        this.assertResult(raiseBanner(this.game!, connection.playerId!, this.ruleRequestId(connection, action.requestId)));
+        this.broadcast('bannerRaised', { playerId: connection.playerId, current: this.game!.stake.current, pending: this.game!.stake.pending }, action.requestId);
+        this.afterGameAction();
+        break;
+      case 'withdraw':
+        this.requireGamePlayer(connection);
+        this.assertResult(withdraw(this.game!, connection.playerId!, this.ruleRequestId(connection, action.requestId)));
+        this.broadcast('playerWithdrew', { playerId: connection.playerId, winner: this.game!.winner }, action.requestId);
+        this.afterGameAction();
+        break;
+      case 'requestSync':
+        this.sendPrivateState(connection, action.requestId);
+        break;
+      case 'requestRematch':
+        this.requestRematch(connection, action.requestId);
+        break;
+      case 'chatMessage':
+        this.chat(connection, action.message, action.requestId);
+        break;
+      case 'pong':
+        connection.lastPong = Date.now();
+        this.send(connection, 'pong', { serverTime: Date.now() }, action.requestId);
+        break;
     }
+  }
 
-    public getGenerationProvider(): GenerationProvider {
-        return this.generationProvider;
+  private authenticate(connection: Connection, password: string, requestId: string): void {
+    if (!this.config.password || password === this.config.password) {
+      connection.authenticated = true;
+      this.send(connection, 'authenticated', { ok: true }, requestId);
+      return;
     }
+    throw new RuleError('AUTHENTICATION_FAILED', 'Incorrect server password.');
+  }
 
-    public startGame() {
-        for (const player of this.players.values()) {
-            player.ready = false;
-        }
-
-        this.game = new Game(this);
+  private join(connection: Connection, nameValue: string, reconnectToken: string | undefined, requestId: string): void {
+    if (!connection.authenticated) throw new RuleError('AUTHENTICATION_REQUIRED', 'Authenticate before joining.');
+    if (connection.playerId) throw new RuleError('ALREADY_JOINED', 'This connection already joined the room.');
+    const name = nameValue.trim().slice(0, 24);
+    if (!name) throw new RuleError('NAME_REQUIRED', 'Player name is required.');
+    if (reconnectToken) {
+      const player = [...this.players.values()].find((candidate) => candidate.reconnectToken === reconnectToken);
+      if (player) {
+        if (player.connection) throw new RuleError('PLAYER_ALREADY_CONNECTED', 'That player is already connected.');
+        player.connection = connection;
+        connection.playerId = player.playerId;
+        if (player.reconnectTimer) clearTimeout(player.reconnectTimer);
+        player.reconnectTimer = null;
+        this.send(connection, 'reconnected', { playerId: player.playerId, name: player.name }, requestId);
+        this.sendRoomState();
+        this.sendPrivateState(connection);
+        return;
+      }
     }
+    if (this.players.size >= 2 || this.mode === 'practice') throw new RuleError('ROOM_FULL', 'The room already has two players.');
+    if ([...this.players.values()].some((player) => player.name === name)) throw new RuleError('NAME_IN_USE', 'That name is already in use.');
+    const playerId = `player-${this.players.size + 1}`;
+    const player: PlayerRecord = {
+      playerId,
+      name,
+      reconnectToken: randomUUID(),
+      connection,
+      selectedDeck: null,
+      ready: false,
+      rematch: false,
+      reconnectTimer: null
+    };
+    this.players.set(playerId, player);
+    connection.playerId = playerId;
+    this.send(connection, 'joined', { playerId, name, reconnectToken: player.reconnectToken }, requestId);
+    this.send(connection, 'cardDataVersion', { version: this.catalog.cardVersion, cards: this.catalog.cards.length });
+    this.send(connection, 'assetDataVersion', { version: this.catalog.assetVersion });
+    this.sendRoomState();
+  }
 
-    public endGame() {
-        this.game?.terminate();
-        this.game = null;
+  private selectDeck(connection: Connection, cardIds: string[], requestId: string): void {
+    const player = this.requirePlayer(connection);
+    this.assertResult(validateDeck(cardIds, this.cardCatalog));
+    player.selectedDeck = [...cardIds];
+    player.ready = false;
+    this.send(connection, 'deckSelected', { cards: cardIds.length }, requestId);
+    this.sendRoomState();
+  }
 
-        this.broadcast(new GameEndEvent());
-        this.setPhase(PHASE_LOBBY);
+  private ready(connection: Connection, requestId: string): void {
+    const player = this.requirePlayer(connection);
+    if (!player.selectedDeck) throw new RuleError('DECK_REQUIRED', 'Select a valid deck before readying.');
+    if (this.game && this.game.phase !== 'ended') throw new RuleError('GAME_ACTIVE', 'A game is already active.');
+    player.ready = true;
+    this.send(connection, 'readyAccepted', { ready: true }, requestId);
+    this.sendRoomState();
+    if (this.players.size === 2 && [...this.players.values()].every((candidate) => candidate.ready && candidate.selectedDeck)) {
+      this.startOnlineGame();
     }
+  }
 
-    public getGame() {
-        return this.game;
+  private startOnlineGame(): void {
+    const players = [...this.players.values()];
+    const seed = this.nextSeed();
+    this.mode = 'online';
+    this.aiPlayerId = null;
+    this.game = createGame({
+      gameId: `online-${seed}`,
+      seed,
+      cards: this.catalog.cards,
+      fronts: FRONT_DEFINITIONS,
+      players: players.map((player) => ({ playerId: player.playerId, name: player.name, deck: [...player.selectedDeck!] }))
+    });
+    for (const player of players) {
+      player.ready = false;
+      player.rematch = false;
     }
+    this.broadcast('gameStarted', { gameId: this.game.gameId, mode: this.mode });
+    this.scheduleTurn();
+    this.broadcastGameState();
+  }
 
-    public getPhase(): number {
-        return this.getServerState().phase;
+  private startPractice(connection: Connection, cardIds: string[], requestId: string): void {
+    const human = this.requirePlayer(connection);
+    this.assertResult(validateDeck(cardIds, this.cardCatalog));
+    if (this.players.size > 1) throw new RuleError('ROOM_NOT_EMPTY', 'Practice mode requires an empty second seat.');
+    const aiDeck = this.catalog.presets[1]?.cardIds ?? this.catalog.presets[0]?.cardIds;
+    if (!aiDeck) throw new RuleError('PRESET_MISSING', 'No practice deck is available.');
+    const seed = this.nextSeed();
+    this.mode = 'practice';
+    this.aiPlayerId = 'practice-ai';
+    human.selectedDeck = [...cardIds];
+    this.game = createGame({
+      gameId: `practice-${seed}`,
+      seed,
+      cards: this.catalog.cards,
+      fronts: FRONT_DEFINITIONS,
+      players: [
+        { playerId: human.playerId, name: human.name, deck: [...cardIds] },
+        { playerId: this.aiPlayerId, name: '演武官', deck: [...aiDeck] }
+      ]
+    });
+    this.send(connection, 'practiceStarted', { gameId: this.game.gameId }, requestId);
+    this.scheduleTurn();
+    this.runPracticeAi();
+    this.broadcastGameState();
+  }
+
+  private requestRematch(connection: Connection, requestId: string): void {
+    const player = this.requirePlayer(connection);
+    if (!this.game || this.game.phase !== 'ended') throw new RuleError('GAME_NOT_ENDED', 'Rematch is available after the game ends.');
+    player.rematch = true;
+    this.send(connection, 'rematchRequested', { playerId: player.playerId }, requestId);
+    if (this.mode === 'practice' && player.selectedDeck) {
+      this.startPractice(connection, player.selectedDeck, `${requestId}:start`);
+    } else if (this.mode === 'online' && [...this.players.values()].every((candidate) => candidate.rematch)) {
+      this.startOnlineGame();
+    } else {
+      this.sendRoomState();
     }
+  }
 
-    public setPhase(phase: number) {
-        this.getServerState().phase = phase;
+  private chat(connection: Connection, messageValue: string, requestId: string): void {
+    const player = this.requirePlayer(connection);
+    const message = messageValue.trim().slice(0, 500);
+    if (!message) throw new RuleError('EMPTY_MESSAGE', 'Chat message cannot be empty.');
+    this.broadcast('chatMessage', { playerId: player.playerId, name: player.name, message }, requestId);
+  }
+
+  private afterGameAction(): void {
+    this.runPracticeAi();
+    if (this.game?.phase === 'ended') {
+      if (this.turnTimer) clearTimeout(this.turnTimer);
+      this.turnTimer = null;
+      this.deadline = null;
+      this.broadcast('gameEnded', { winner: this.game.winner });
+    } else {
+      this.scheduleTurn();
     }
+    this.broadcastGameState();
+  }
 
-    private setupHeartBeat() {
-        setInterval(() => {
-            const now = Date.now();
-
-            this.players.forEach(player => {
-                if (player.ws.readyState === WebSocket.CLOSING) {
-                    player.ws.terminate();
-                    Logger.info(`Player ${player.name} force terminated after failed close.`);
-                    return;
-                }
-
-                if (now - player.lastPong > HEARTBEAT_TIMEOUT) {
-                    player.ws.close(4001, "由于心跳超时，服务器已关闭连接。");
-                    Logger.info(`Player ${player.name} closing due to timeout...`);
-                } else {
-                    player.ping();
-                }
-            });
-        }, HEARTBEAT_INTERVAL);
+  private runPracticeAi(): void {
+    if (this.mode !== 'practice' || !this.game || !this.aiPlayerId || this.game.phase !== 'planning') return;
+    const ai = this.game.players.find((player) => player.playerId === this.aiPlayerId);
+    if (!ai || ai.locked) return;
+    const view = createPlayerView(this.game, this.aiPlayerId);
+    const riskSeed = this.game.seed + this.game.turn * 101;
+    const risk = choosePracticeRisk(view, this.aiPlayerId, riskSeed);
+    if (risk === 'withdraw') {
+      withdraw(this.game, this.aiPlayerId, `ai-withdraw-${this.game.turn}`);
+      return;
     }
+    if (risk === 'raise') raiseBanner(this.game, this.aiPlayerId, `ai-banner-${this.game.turn}`);
+    const intent = choosePracticeIntent(view, this.aiPlayerId, this.cardCatalog, riskSeed + 1);
+    const submitted = submitTurnIntent(this.game, this.aiPlayerId, intent);
+    if (!submitted.ok) throw new RuleError('AI_INVALID_PLAN', 'Practice AI produced an invalid plan.', { issues: submitted.issues });
+    const locked = lockTurn(this.game, this.aiPlayerId, `ai-lock-${this.game.turn}`);
+    if (!locked.ok) throw new RuleError('AI_LOCK_FAILED', 'Practice AI could not lock.', { issues: locked.issues });
+  }
 
-    private handle(client: Client, data: ClientMessage) {
-        try {
-            const handler = this.actionHandlers[data.action];
-            if (!handler) {
-                console.warn("Unknown action:", data.action);
-                return;
-            }
+  private scheduleTurn(): void {
+    if (!this.game || this.game.phase !== 'planning') return;
+    if (this.turnTimer) clearTimeout(this.turnTimer);
+    this.deadline = Date.now() + this.config.turnDurationMs;
+    const gameId = this.game.gameId;
+    const turn = this.game.turn;
+    this.turnTimer = setTimeout(() => {
+      if (!this.game || this.game.gameId !== gameId || this.game.turn !== turn || this.game.phase !== 'planning') return;
+      for (const player of [...this.game.players]) {
+        if (!player.locked) lockTurn(this.game, player.playerId, `timeout-${gameId}-${turn}-${player.playerId}`);
+      }
+      this.afterGameAction();
+    }, this.config.turnDurationMs);
+    this.turnTimer.unref();
+  }
 
-            if (handler instanceof PlayerActionHandler) {
-                const player = this.players.get(client.ws);
-                if (!player) {
-                    client.send(new ErrorEvent('Unauthenticated.'));
-                    return;
-                }
+  private sendPrivateState(connection: Connection, requestId?: string): void {
+    if (!this.game || !connection.playerId || !this.game.players.some((player) => player.playerId === connection.playerId)) return;
+    const view = createPlayerView(this.game, connection.playerId);
+    this.send(connection, 'privateGameState', { ...view, deadline: this.deadline }, requestId);
+  }
 
-                handler.execute(player, data);
-            } else {
-                handler.execute(client, data);
-            }
-        } catch (e) {
-            if (e instanceof EventError) {
-                client.send(new ErrorEvent(e.message));
-            } else {
-                console.error("Invalid message", e);
-            }
-        }
+  private broadcastGameState(): void {
+    if (!this.game) return;
+    for (const player of this.players.values()) if (player.connection) this.sendPrivateState(player.connection);
+    const spectators = [...this.connections].filter((connection) => !connection.playerId);
+    const publicView: PlayerView & { deadline: number | null } = { ...createPublicView(this.game), deadline: this.deadline };
+    for (const spectator of spectators) this.send(spectator, 'publicGameState', publicView);
+  }
+
+  private sendRoomState(): void {
+    const payload = {
+      roomId: 'main',
+      mode: this.mode,
+      players: [...this.players.values()].map((player) => ({
+        playerId: player.playerId,
+        name: player.name,
+        connected: Boolean(player.connection),
+        ready: player.ready,
+        deckSelected: Boolean(player.selectedDeck),
+        rematch: player.rematch
+      }))
+    };
+    this.broadcast('roomState', payload);
+  }
+
+  private statusPayload(): Record<string, unknown> {
+    return { title: this.config.title, owner: this.config.owner, requirePassword: Boolean(this.config.password), tls: this.config.tls, ...this.health() };
+  }
+
+  private send(connection: Connection, event: string, payload: unknown, requestId?: string): void {
+    if (connection.ws.readyState !== WebSocket.OPEN) return;
+    this.transportSequence += 1;
+    const message: OutboundMessage = { event, protocolVersion: PROTOCOL_VERSION, sequence: this.transportSequence, payload };
+    if (requestId !== undefined) message.requestId = requestId;
+    connection.ws.send(JSON.stringify(message));
+    if (this.config.debug) Logger.debug(`Sent ${event} to ${connection.remoteName}.`);
+  }
+
+  private broadcast(event: string, payload: unknown, requestId?: string): void {
+    for (const connection of this.connections) this.send(connection, event, payload, requestId);
+  }
+
+  private requirePlayer(connection: Connection): PlayerRecord {
+    if (!connection.playerId) throw new RuleError('JOIN_REQUIRED', 'Join the room first.');
+    const player = this.players.get(connection.playerId);
+    if (!player) throw new RuleError('PLAYER_NOT_FOUND', 'Joined player record no longer exists.');
+    return player;
+  }
+
+  private requireGamePlayer(connection: Connection): void {
+    this.requirePlayer(connection);
+    if (!this.game || this.game.phase === 'ended') throw new RuleError('GAME_NOT_ACTIVE', 'No active game exists.');
+    if (!this.game.players.some((player) => player.playerId === connection.playerId)) throw new RuleError('NOT_IN_GAME', 'Player is not part of the active game.');
+  }
+
+  private assertResult(result: ValidationResult): void {
+    if (!result.ok) throw new RuleError(result.issues[0]?.code ?? 'RULE_REJECTED', result.issues[0]?.message ?? 'Action rejected.', { issues: result.issues });
+  }
+
+  private ruleRequestId(connection: Connection, requestId: string): string {
+    return `${connection.playerId ?? connection.id}:${requestId}`;
+  }
+
+  private disconnect(connection: Connection): void {
+    this.connections.delete(connection);
+    if (!connection.playerId) return;
+    const player = this.players.get(connection.playerId);
+    if (!player || player.connection !== connection) return;
+    player.connection = null;
+    this.sendRoomState();
+    player.reconnectTimer = setTimeout(() => {
+      if (player.connection) return;
+      if (this.game?.phase !== 'ended' && this.game?.players.some((candidate) => candidate.playerId === player.playerId)) {
+        withdraw(this.game, player.playerId, `disconnect-${this.game.gameId}-${player.playerId}`);
+        this.broadcastGameState();
+      }
+      this.players.delete(player.playerId);
+      this.sendRoomState();
+    }, this.config.reconnectWindowMs);
+    player.reconnectTimer.unref();
+  }
+
+  private runHeartbeat(): void {
+    const now = Date.now();
+    for (const connection of this.connections) {
+      if (now - connection.lastPong > 10_000) {
+        connection.ws.close(4001, 'Heartbeat timeout.');
+      } else if (connection.ws.readyState === WebSocket.OPEN) {
+        connection.ws.ping();
+      }
     }
+  }
 
-    private setupWSServer() {
-        this.wss.on('connection', (ws, req) => {
-            const client = new Client(ws);
-            this.clients.set(ws, client);
+  private nextSeed(): number {
+    const seed = (Date.now() ^ this.seedCounter) >>> 0;
+    this.seedCounter += 1;
+    return seed;
+  }
 
-            ws.on('close', () => {
-                this.clients.delete(ws);
-                if (! this.players.size) {
-                    this.endGame();
-                } else if (this.players.has(ws)) {
-                    const player = this.players.get(ws);
-
-                    Logger.info(`Player ${player?.name} left. (${(this.getServerState().onlinePlayers-1)}/2)`);
-                    this.players.delete(ws);
-                    this.broadcastPlayerList();
-                    this.broadcastMessage(`${player?.name} 退出了服务器。`);
-
-                    if (this.game && this.getPhase() === PHASE_DRAFT) {
-                        if (this.game.timer && ! this.game.timer.isPaused()) {
-                            this.game.timer.pause();
-                            this.disconnectedPlayer = player;
-
-                            this.broadcastMessage(`由于有玩家中途退出，游戏暂停。重连限时为 ${Math.floor(( RECONNECT_INTERVAL / 1000 ))} 秒。`);
-                            this.broadcast(new GamePausedEvent(RECONNECT_INTERVAL));
-                            this.reconnectTimeout = setTimeout(() => {
-                                this.endGame();
-                                this.broadcastMessage("由于有玩家重连超时，对局结束。");
-                            }, RECONNECT_INTERVAL);
-                        }
-                    }
-                }
-            });
-
-            ws.on('message', (rdata) => {
-                if (this.config.debug) {
-                    Logger.debug(`Received ${rdata.toString()} from ${client.remoteName}`);
-                }
-
-                let message;
-                try {
-                    message = JSON.parse(rdata.toString());
-                } catch (e) {
-                    client.send(new ErrorEvent("Malformed request."));
-                    return;
-                }
-
-                this.handle(client, message);
-            });
-
-            client.send(new StatusEvent(this.getServerState()));
-        });
+  private async publish(): Promise<void> {
+    if (!this.config.publishEndpoint) return;
+    try {
+      const response = await fetch(this.config.publishEndpoint, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ip: this.config.publishAddress, port: this.address()?.port ?? this.config.port, tls: this.config.tls, product: 'Aeonfront' })
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      Logger.info('Server published to the configured listing.');
+    } catch (error) {
+      Logger.warning(`Server listing publication failed: ${error instanceof Error ? error.message : 'unknown error'}`);
     }
-
-    public getPlayerList(): Player[] {
-        let players = [];
-        for (const player of this.players.values()) {
-            players.push(player);
-        }
-
-        return players;
-    }
-
-    public broadcastPlayerList() {
-        this.broadcast(new PlayerListEvent(this.getPlayerList()));
-    }
-
-    public broadcast(event: ServerEvent) {
-        for (const player of this.players.values()) {
-            if (player.isConnectionActive()) {
-                player.send(event);
-            }
-        }
-    }
-
-    public broadcastMessage(message: string) {
-        this.broadcast(new MessageEvent(message));
-    }
-
-    public getServerState() {
-        this.serverState.onlinePlayers = this.serverState.getOnlinePlayers();
-        return this.serverState;
-    }
-
-    private async publish() {
-        Logger.info("Publishing server to " + this.config["publish-endpoint"]);
-
-        try {
-            const res = await axios.post(
-                this.config["publish-endpoint"],
-                { ip: this.config["publish-address"], port: this.config.port, tls: this.config.tls },
-            );
-            if (res.data.ok) {
-                Logger.info("Server published to public server list.");
-            } else {
-                throw new Error("unknown error");
-            }
-        } catch (e) {
-            console.error("Failed to publish to public server list: ",
-                e instanceof AxiosError
-                    ? e.response?.data : "unknown error");
-            console.error("Please confirm publish-address is set to a domain name pointing to your public IP address and the certificate is valid.")
-        }
-    }
+  }
 }

@@ -1,19 +1,16 @@
-import fs from "fs";
-import path from "path";
-import { processCharacters } from "./character";
-import { Server } from "./server";
-import { Logger } from "./utils";
+import { loadCatalog } from './catalog.js';
+import { loadConfig } from './config.js';
+import { AeonfrontServer } from './server.js';
+import { Logger } from './utils.js';
 
-Logger.info('Starting WDS server...')
+const server = new AeonfrontServer(loadConfig(), loadCatalog());
+await server.listen();
 
-const config = JSON.parse(fs.readFileSync(
-    path.resolve(process.cwd(), "config", "server.json"), "utf8"
-));
+const shutdown = async (signal: string): Promise<void> => {
+  Logger.info(`Received ${signal}; shutting down.`);
+  await server.close();
+  process.exit(0);
+};
 
-Logger.info('Loading character data from characters.json...');
-const characters = processCharacters(JSON.parse(fs.readFileSync(
-    path.resolve(process.cwd(), "config", "characters/characters.json"), "utf8"
-)));
-Logger.info("Loaded " + characters.size + " characters.");
-
-new Server(config, characters);
+process.once('SIGINT', () => void shutdown('SIGINT'));
+process.once('SIGTERM', () => void shutdown('SIGTERM'));

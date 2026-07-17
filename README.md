@@ -1,60 +1,46 @@
-# war-drafting-simulator-server
-Server software for [WDS](https://wds.srcmax.com).
+# Aeonfront Server
 
-## Requirements
-- Node.js > 20
-- A text generation(LLM) API
+Authoritative Node.js and TypeScript match server for **万世战线 Aeonfront**.
+
+The server accepts simultaneous turn plans over WebSocket, validates every card, cost, target and front capacity through the shared deterministic engine, then broadcasts player-safe views. It owns turn deadlines, reveal order, abilities, front effects, banner stakes, withdrawal and final scoring. No external model participates in gameplay or practice AI decisions.
+
+## Features
+
+- versioned action/event protocol with request ids and monotonic message sequence;
+- two-player room, deck selection, ready flow, chat and rematch;
+- six-turn authoritative matches and server-side timeout locking;
+- reconnect tokens with a configurable recovery window;
+- private views that hide opponent hands, deck order and unrevealed cards;
+- seeded practice AI that reads only its private view and public board information;
+- HTTP `GET /health` on the same port as WebSocket;
+- optional TLS and public server-list publication;
+- optional post-game generation configuration, disabled by default and isolated from rules.
 
 ## Setup
-Make sure to clone with the characters data submodule:
+
 ```bash
-git clone --recurse-submodules git@github.com:srcmax-studio/war-drafting-simulator-server.git
-```
-Create configuration file from template. Edit it afterward.
-```bash
-cp config/server.example.json config/server.json
-```
-Install the dependencies:
-```bash
+git submodule update --init --recursive
 npm install
+cp config/server.example.json config/server.json
+npm run dev
 ```
-Start the server:
+
+Local development defaults to `ws://127.0.0.1:3001` without TLS. Production browser deployments should enable TLS and use valid key/certificate paths. `config/server.json` is ignored and must never contain committed credentials.
+
+## Verification
+
 ```bash
-npm run start
+npm run lint
+npm run typecheck
+npm test
+npm run test:integration
+npm run test:replay
+npm run test:ai
+npm run build
 ```
 
-## Configuration
+The integration suite drives two real WebSocket clients through a full six-turn match, verifies private information, reconnects a player, completes a practice match and replays its event log to the identical final state.
 
-| Parameter                       | Description                                                                                                                                                                                                                                                                                      | Default                              |
-|---------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------|
-| `host`                          | Server bind address                                                                                                                                                                                                                                                                              | `0.0.0.0`                            |
-| `port`                          | Port server listens on                                                                                                                                                                                                                                                                           | `3001`                               |
-| `title`                         | Server title                                                                                                                                                                                                                                                                                     | `WDS Game`                           |
-| `owner`                         | Server owner                                                                                                                                                                                                                                                                                     | `SrcMax Studio`                      |
-| `tls`                           | Enable TLS for WebSocket server. Required when using HTTPS in web client or modern browsers will not connect                                                                                                                                                                                     | `true`                               |
-| `private-key`                   | Path to your private key                                                                                                                                                                                                                                                                         | `/path/to/privkey.pem`               |
-| `certificate`                   | Path to your certificate                                                                                                                                                                                                                                                                         | `/path/to/fullchain.pem`             |
-| `generation.provider`           | Your text generation provider. `gemini` or `openai` for any OpenAI-compatible API                                                                                                                                                                                                                | `gemini`                             |
-| `generation.baseUrl`            | The base URL of an [OpenAI-compatible API](https://platform.openai.com/docs/api-reference/introduction). This option is specific to the `openai` provider.                                                                                                                                       | `https://api.openai.com/v1`          |
-| `generation.useChatCompletions` | Use the [Chat Completions API](https://platform.openai.com/docs/api-reference/chat) for the `openai` provider. This option is specific to the `openai` provider. Note that this is considered legacy and [support may be dropped](https://platform.openai.com/docs/guides/migrate-to-responses). | `false`                              |
-| `generation.apiKey`             | Your [Gemini API key](https://ai.google.dev/gemini-api/docs/api-key)  or the API key to your OpenAI-compatible API                                                                                                                                                                               | `YOUR_API_KEY`                       |
-| `generation.model`              | The text generation model ([Gemini model](https://ai.google.dev/gemini-api/docs/models)) to use                                                                                                                                                                                                  | `gemini-3-flash-preview`             |
-| `publish-server`                | List your server on the public server list                                                                                                                                                                                                                                                       | `true`                               |
-| `publish-endpoint`              | Server list endpoint to publish                                                                                                                                                                                                                                                                  | `https://wds.srcmax.com/api/publish` |
-| `publish-address`               | The domain name pointing to the public IP address of your server                                                                                                                                                                                                                                 | `public.wds.srcmax.com`              |
-| `password`                      | Password for joining (empty for no password)                                                                                                                                                                                                                                                     | `""`                                 |
-| `debug`                         | Enable debug logging                                                                                                                                                                                                                                                                             | `false`                              |
+## Protocol flow
 
-## License
-This project is licensed under MIT.
-
-```text
-Copyright 2025 SrcMax Studio
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-```
+Connect, authenticate when required, join, select a legal twelve-card deck, ready, then exchange `submitTurn`, `undoTurn`, `lockTurn`, `raiseBanner`, `withdraw`, `requestSync`, `requestRematch`, `chatMessage` and `pong` actions. Every message uses `aeonfront/1`. See the client documentation for the full action and event tables.
